@@ -6,7 +6,8 @@ import tornado.web
 
 from mopidy import config, ext
 
-__version__ = "1.3.0"
+__version__ = "1.3.0-PARTY_PLUS_FIXED_v2"
+# VERSION MARKER: If you see "1.3.0-PARTY_PLUS_FIXED_v2" in logs, the latest code is loaded
 
 
 class VoteRequestHandler(tornado.web.RequestHandler):
@@ -140,30 +141,9 @@ class PlaylistHandler(tornado.web.RequestHandler):
             added_count = 0
             for track_url in tracks:
                 try:
-                    # For YouTube URLs, try to find the proper track URI
-                    if "youtube.com" in track_url or "youtu.be" in track_url:
-                        try:
-                            # Try to look up the URL to get proper track information
-                            search_result = self.core.library.search(
-                                {"any": [track_url]}
-                            ).get()
-                            found_uri = None
-                            for result in search_result:
-                                if result and hasattr(result, "tracks"):
-                                    for track in result.tracks:
-                                        if track and hasattr(track, "uri"):
-                                            found_uri = track.uri
-                                            break
-                                if found_uri:
-                                    break
-
-                            # If search found a track, use it; otherwise try adding the URL directly
-                            track_uri = found_uri or track_url
-                        except Exception as search_e:
-                            print(f"Error searching for {track_url}: {repr(search_e)}")
-                            track_uri = track_url
-                    else:
-                        track_uri = track_url
+                    # Use the URL directly - mopidy backends handle URLs
+                    track_uri = track_url
+                    print(f"[PARTY_PLUS] Adding track: {track_uri}")
 
                     pos = 0
                     if self.data["last"]:
@@ -182,12 +162,9 @@ class PlaylistHandler(tornado.web.RequestHandler):
                     self.data["queue"].append(self._getip())
                     self.data["queue"].pop(0)
                     added_count += 1
+                    print(f"[PARTY_PLUS] Successfully added track to queue")
                 except Exception as e:
-                    print(f"Error adding track {track_uri}: {repr(e)}")
-                    continue
-
-            self.core.tracklist.set_consume(True)
-            if self.core.playback.get_state().get() == "stopped":
+                    print(f"[PARTY_PLUS] Error adding track {track_uri}: {repr(e)}")
                 self.core.playback.play()
 
             self.write(
@@ -215,6 +192,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
             )
 
         try:
+            print(f"[PARTY_PLUS] Extracting YouTube playlist from: {url}")
             ydl_opts = {
                 "quiet": True,
                 "no_warnings": True,
@@ -227,20 +205,27 @@ class PlaylistHandler(tornado.web.RequestHandler):
 
             tracks = []
             if "entries" in info:
+                print(f"[PARTY_PLUS] Found {len(info['entries'])} entries in playlist")
                 for entry in info["entries"]:
                     if entry:
                         video_id = entry.get("id")
                         if video_id:
-                            # Create full YouTube URL for proper Mopidy handling
-                            tracks.append(f"https://www.youtube.com/watch?v={video_id}")
+                            # Create full YouTube URL for mopidy-youtube backend
+                            video_url = f"https://www.youtube.com/watch?v={video_id}"
+                            tracks.append(video_url)
+                            print(f"[PARTY_PLUS] Added video: {video_url}")
             else:
                 # Single video
                 video_id = info.get("id")
                 if video_id:
-                    tracks.append(f"https://www.youtube.com/watch?v={video_id}")
+                    video_url = f"https://www.youtube.com/watch?v={video_id}"
+                    tracks.append(video_url)
+                    print(f"[PARTY_PLUS] Added single video: {video_url}")
 
+            print(f"[PARTY_PLUS] Total tracks extracted: {len(tracks)}")
             return tracks
         except Exception as e:
+            print(f"[PARTY_PLUS] Error extracting YouTube playlist: {repr(e)}")
             raise Exception(f"Failed to extract YouTube playlist: {repr(e)}")
 
     def _extract_spotify_playlist(self, url):

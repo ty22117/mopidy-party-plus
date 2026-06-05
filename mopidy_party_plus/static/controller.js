@@ -1,5 +1,8 @@
 'use strict';
 
+// VERSION MARKER v2: If you see "VERSION v2" in console, latest frontend code is loaded
+console.log("[PARTY_PLUS] Frontend version: 1.3.0-PARTY_PLUS_FIXED_v2");
+
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
   .controller('MainController', function ($scope, $http) {
