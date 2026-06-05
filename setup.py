@@ -11,11 +11,11 @@ def get_version(filename):
 
 setup(
     name="Mopidy-Party-Plus",
-    version=get_version("mopidy_party_plus/__init__.py"),
+    version="0.1",
     url="https://github.com/ty22117/mopidy-party-plus",
     license="Apache License, Version 2.0",
     author="Loick Bonniot",
-    author_email="pip@lesterpig.com",
+    author_email="pip@lesterpig.com", # Original Author
     description="Mopidy web extension designed for enhanced party experience",
     long_description=open("README.rst").read(),
     packages=find_packages(exclude=["tests", "tests.*"]),
