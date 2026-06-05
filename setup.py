@@ -11,7 +11,7 @@ def get_version(filename):
 
 setup(
     name="Mopidy-Party-Plus",
-    version=get_version("mopidy_party/__init__.py"),
+    version=get_version("mopidy_party_plus/__init__.py"),
     url="https://github.com/ty22117/mopidy-party-plus",
     license="Apache License, Version 2.0",
     author="Loick Bonniot",
