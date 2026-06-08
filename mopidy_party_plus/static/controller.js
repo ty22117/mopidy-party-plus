@@ -353,7 +353,14 @@ angular.module('partyApp', [])
     };
 
     $scope.seekTrack = function () {
-      mopidy.playback.seek({value: Math.floor($scope.currentState.position)}).done();
+      // Prevent position updates while seek is in progress
+      $scope.isSliderDragging = true;
+      mopidy.playback.seek({value: Math.floor($scope.currentState.position)}).done(function() {
+        // Re-enable position updates after seek completes
+        setTimeout(function() {
+          $scope.isSliderDragging = false;
+        }, 300);
+      });
     };
 
     $scope.setVolume = function () {
