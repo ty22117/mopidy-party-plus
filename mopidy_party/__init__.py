@@ -137,12 +137,16 @@ class PlaylistHandler(tornado.web.RequestHandler):
                 self.set_status(404)
                 return
 
-            # Add all extracted tracks to queue
+            # Check anti-spam condition before adding massive playlists
+            # We skip filling data["queue"] with dozens of entries to avoid locking the user out
+            if self.data["queue"] and all([e == self._getip() for e in self.data["queue"]]):
+                self.write(json.dumps({"error": "You have requested too many songs"}))
+                self.set_status(409)
+                return
+
             added_count = 0
-            for track_url in tracks:
+            for track_uri in tracks:
                 try:
-                    # Use the URL directly - mopidy backends handle URLs
-                    track_uri = track_url
                     print(f"[PARTY_PLUS] Adding track: {track_uri}")
 
                     pos = 0
@@ -153,18 +157,26 @@ class PlaylistHandler(tornado.web.RequestHandler):
                         if (self.maxQueueLength > 0) and (
                             pos >= self.maxQueueLength - 1
                         ):
+                            print("[PARTY_PLUS] Max queue length reached, stopping playlist import.")
                             break
 
                     last_track = self.core.tracklist.add(
                         uris=[track_uri], at_position=pos + 1
                     ).get()[0]
+                    
                     self.data["last"] = last_track
-                    self.data["queue"].append(self._getip())
-                    self.data["queue"].pop(0)
+                    
+                    # Only log one entry in anti-spam queue tracking per playlist chunk
+                    if added_count == 0:
+                        self.data["queue"].append(self._getip())
+                        self.data["queue"].pop(0)
+                        
                     added_count += 1
-                    print(f"[PARTY_PLUS] Successfully added track to queue")
                 except Exception as e:
                     print(f"[PARTY_PLUS] Error adding track {track_uri}: {repr(e)}")
+
+            # CRITICAL FIX: Trigger playback ONCE after all tracks have been processed
+            if added_count > 0 and self.core.playback.get_state().get() == "stopped":
                 self.core.playback.play()
 
             self.write(
@@ -210,17 +222,17 @@ class PlaylistHandler(tornado.web.RequestHandler):
                     if entry:
                         video_id = entry.get("id")
                         if video_id:
-                            # Create full YouTube URL for mopidy-youtube backend
-                            video_url = f"https://www.youtube.com/watch?v={video_id}"
-                            tracks.append(video_url)
-                            print(f"[PARTY_PLUS] Added video: {video_url}")
+                            # CRITICAL FIX: Generate Mopidy-YouTube URI schemes instead of generic web URLs
+                            video_uri = f"yt:video:{video_id}"
+                            tracks.append(video_uri)
+                            print(f"[PARTY_PLUS] Added video URI: {video_uri}")
             else:
                 # Single video
                 video_id = info.get("id")
                 if video_id:
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    tracks.append(video_url)
-                    print(f"[PARTY_PLUS] Added single video: {video_url}")
+                    video_uri = f"yt:video:{video_id}"
+                    tracks.append(video_uri)
+                    print(f"[PARTY_PLUS] Added single video URI: {video_uri}")
 
             print(f"[PARTY_PLUS] Total tracks extracted: {len(tracks)}")
             return tracks
