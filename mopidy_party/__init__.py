@@ -139,7 +139,9 @@ class PlaylistHandler(tornado.web.RequestHandler):
 
             # Check anti-spam condition before adding massive playlists
             # We skip filling data["queue"] with dozens of entries to avoid locking the user out
-            if self.data["queue"] and all([e == self._getip() for e in self.data["queue"]]):
+            if self.data["queue"] and all(
+                [e == self._getip() for e in self.data["queue"]]
+            ):
                 self.write(json.dumps({"error": "You have requested too many songs"}))
                 self.set_status(409)
                 return
@@ -157,20 +159,22 @@ class PlaylistHandler(tornado.web.RequestHandler):
                         if (self.maxQueueLength > 0) and (
                             pos >= self.maxQueueLength - 1
                         ):
-                            print("[PARTY_PLUS] Max queue length reached, stopping playlist import.")
+                            print(
+                                "[PARTY_PLUS] Max queue length reached, stopping playlist import."
+                            )
                             break
 
                     last_track = self.core.tracklist.add(
                         uris=[track_uri], at_position=pos + 1
                     ).get()[0]
-                    
+
                     self.data["last"] = last_track
-                    
+
                     # Only log one entry in anti-spam queue tracking per playlist chunk
                     if added_count == 0:
                         self.data["queue"].append(self._getip())
                         self.data["queue"].pop(0)
-                        
+
                     added_count += 1
                 except Exception as e:
                     print(f"[PARTY_PLUS] Error adding track {track_uri}: {repr(e)}")
@@ -223,14 +227,15 @@ class PlaylistHandler(tornado.web.RequestHandler):
                         video_id = entry.get("id")
                         if video_id:
                             # CRITICAL FIX: Generate Mopidy-YouTube URI schemes instead of generic web URLs
-                            video_uri = f"yt:video:{video_id}"
+                            # Using full "youtube:video:ID" format ensures proper colon-based parsing
+                            video_uri = f"youtube:video:{video_id}"
                             tracks.append(video_uri)
                             print(f"[PARTY_PLUS] Added video URI: {video_uri}")
             else:
                 # Single video
                 video_id = info.get("id")
                 if video_id:
-                    video_uri = f"yt:video:{video_id}"
+                    video_uri = f"youtube:video:{video_id}"
                     tracks.append(video_uri)
                     print(f"[PARTY_PLUS] Added single video URI: {video_uri}")
 
