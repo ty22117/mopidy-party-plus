@@ -354,15 +354,17 @@ angular.module('partyApp', [])
       mopidy.tracklist.getTlTracks().then(function (tlTracks) {
         mopidy.tracklist.index().then(function (currentIndex) {
           var idx = (currentIndex === null || currentIndex === undefined) ? -1 : currentIndex;
+          // Only show upcoming songs. The currently-playing song (and anything the
+          // consume mode has already removed) is not part of the queue. When you
+          // back up, the previous song is re-inserted ahead of it, so it reappears.
           $scope.$apply(function () {
-            $scope.queue = (tlTracks || []).map(function (tl, i) {
-              return {
-                track: tl.track,
-                tlid: tl.tlid,
-                position: i,
-                isCurrent: (i === idx)
-              };
-            });
+            $scope.queue = (tlTracks || [])
+              .map(function (tl, i) {
+                return { track: tl.track, tlid: tl.tlid, position: i };
+              })
+              .filter(function (item) {
+                return item.position > idx;
+              });
           });
         });
       });
@@ -378,7 +380,16 @@ angular.module('partyApp', [])
     // "Last song": step back through the history of played tracks. Because consume
     // mode removes played tracks from the tracklist, we pop the most recent one off
     // the history stack, re-insert it at the current position, and play it.
+    $scope.RESTART_THRESHOLD_MS = 3000; // within this many ms, "back" goes to the previous song
     $scope.playLastSong = function () {
+      // Standard music-player behaviour: only jump to the previous song if we're
+      // still in the first few seconds. Otherwise, restart the current song.
+      if ($scope.currentState.position > $scope.RESTART_THRESHOLD_MS) {
+        $scope.currentState.position = 0;
+        $scope.seekTrack();
+        $scope.message = ['success', 'Restarted current song'];
+        return;
+      }
       if (!$scope.history.length) {
         $scope.message = ['error', 'No previous song to replay yet'];
         return;
