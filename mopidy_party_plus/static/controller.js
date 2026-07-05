@@ -34,8 +34,8 @@ angular.module('partyApp', [])
     $scope.isSliderDragging = false;
     $scope.queue = [];            // upcoming/current tracks in the tracklist
     $scope.showQueue = false;     // toggle for the queue panel
-    $scope.history = [];          // stack of previously-played tracks, most recent last
-    $scope.pendingBackNav = 0;    // how many "back" replays are in flight (skip history push for these)
+    $scope.history = [];              // stack of previously-played tracks, most recent last
+    $scope.suppressHistoryUri = null; // URI whose next "ended" event should NOT be recorded (set during a back-jump)
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/party_plus/config?key=max_results').then(function success (response) {
@@ -120,21 +120,28 @@ angular.module('partyApp', [])
     });
 
     mopidy.on('event:trackPlaybackStarted', function (event) {
-      var newUri = event.tl_track && event.tl_track.track ? event.tl_track.track.uri : null;
-      var prev = $scope.currentState.track;
-      if ($scope.pendingBackNav > 0) {
-        // This playback was triggered by a "back" replay, not natural progression.
-        // Don't push onto history, otherwise we'd just ping-pong between two songs.
-        $scope.pendingBackNav--;
-      } else if (prev && prev.uri && prev.uri !== newUri) {
-        // A song finished (or was skipped) and the next one started: remember the
-        // one that just played so we can back up through the full history.
-        $scope.history.push(prev);
-      }
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
       $scope.$apply();
       $scope.refreshQueue();
+    });
+
+    mopidy.on('event:trackPlaybackEnded', function (event) {
+      // Record every track that finishes (or is skipped) so we can step back through
+      // the full play history. Because consume mode removes played tracks, this is
+      // the only place the song is captured -- crucially including the very last
+      // song, when the queue empties and no new track starts after it.
+      var ended = event.tl_track && event.tl_track.track ? event.tl_track.track : null;
+      if (!ended || !ended.uri) {
+        return;
+      }
+      if ($scope.suppressHistoryUri === ended.uri) {
+        // This track ended only because "back" jumped away from it; it has been
+        // re-queued ahead of us, so don't record it now (that caused the ping-pong).
+        $scope.suppressHistoryUri = null;
+        return;
+      }
+      $scope.history.push(ended);
     });
 
     mopidy.on('event:tracklistChanged', function () {
@@ -382,14 +389,14 @@ angular.module('partyApp', [])
     // the history stack, re-insert it at the current position, and play it.
     $scope.RESTART_THRESHOLD_MS = 3000; // within this many ms, "back" goes to the previous song
     $scope.playLastSong = function () {
-      // Standard music-player behaviour: only jump to the previous song if we're
-      // still in the first few seconds. Otherwise, restart the current song.
-      if ($scope.currentState.position > $scope.RESTART_THRESHOLD_MS) {
+      // If a song is actually playing and we're past the first few seconds, restart it.
+      if ($scope.currentState.length > 0 && $scope.currentState.position > $scope.RESTART_THRESHOLD_MS) {
         $scope.currentState.position = 0;
         $scope.seekTrack();
         $scope.message = ['success', 'Restarted current song'];
         return;
       }
+      // Otherwise step back to the previous song from history.
       if (!$scope.history.length) {
         $scope.message = ['error', 'No previous song to replay yet'];
         return;
@@ -397,9 +404,11 @@ angular.module('partyApp', [])
       var prevTrack = $scope.history.pop();
       var uri = prevTrack.uri;
       var name = prevTrack.name;
-      // Mark this playback as a "back" navigation so trackPlaybackStarted doesn't
-      // record it as history (which is what caused the two-song ping-pong).
-      $scope.pendingBackNav++;
+      // If a track is currently playing, it gets re-queued ahead of the replayed
+      // song -- suppress its "ended" event so it isn't recorded as history again
+      // (that was the ping-pong bug). When nothing is playing, nothing to suppress.
+      var outgoing = ($scope.currentState.length > 0) ? $scope.currentState.track : null;
+      $scope.suppressHistoryUri = (outgoing && outgoing.uri) ? outgoing.uri : null;
       mopidy.tracklist.index().then(function (currentIndex) {
         var at = (currentIndex === null || currentIndex === undefined) ? 0 : currentIndex;
         return mopidy.tracklist.add({ uris: [uri], at_position: at });
@@ -412,11 +421,11 @@ angular.module('partyApp', [])
           });
         } else {
           // Add failed: undo the bookkeeping so we don't get stuck.
-          $scope.pendingBackNav = Math.max(0, $scope.pendingBackNav - 1);
+          $scope.suppressHistoryUri = null;
           $scope.history.push(prevTrack);
         }
       }, function (err) {
-        $scope.pendingBackNav = Math.max(0, $scope.pendingBackNav - 1);
+        $scope.suppressHistoryUri = null;
         $scope.history.push(prevTrack);
         $scope.$apply(function () {
           $scope.message = ['error', 'Unable to replay last song: ' + err];

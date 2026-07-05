@@ -47,7 +47,7 @@
 
         <!-- Transport controls: back / play-pause / skip -->
         <div style="margin-top:14px; display:flex; justify-content:center; gap:10px;">
-          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || (history.length === 0 && currentState.position <= 3000)" title="Previous / restart song">
+          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || (history.length === 0 && currentState.length === 0)" title="Previous / restart song">
             <span class="fas fa-step-backward"></span>
           </button>
           {% if not hide_pause %}
