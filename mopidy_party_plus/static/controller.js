@@ -1,7 +1,7 @@
 'use strict';
 
-// VERSION MARKER v2: If you see "VERSION v2" in console, latest frontend code is loaded
-console.log("[PARTY_PLUS] Frontend version: 1.3.0-PARTY_PLUS_FIXED_v2");
+// VERSION MARKER v3: seek fix + queue view + instant skip + last-song
+console.log("[PARTY_PLUS] Frontend version: 1.4.0-PARTY_PLUS_v3");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
@@ -32,6 +32,9 @@ angular.module('partyApp', [])
     $scope.sources_priority = ['local'];       // Will be overwritten later by module config
     $scope.prioritized_sources = [];
     $scope.isSliderDragging = false;
+    $scope.queue = [];            // upcoming/current tracks in the tracklist
+    $scope.showQueue = false;     // toggle for the queue panel
+    $scope.lastPlayedTrack = null; // the track that was playing before the current one
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/party_plus/config?key=max_results').then(function success (response) {
@@ -97,6 +100,7 @@ angular.module('partyApp', [])
           $scope.searching = false;
           $scope.$apply();
           $scope.search();
+          $scope.refreshQueue();
         });
 
       /* Initialize available sources */
@@ -115,9 +119,16 @@ angular.module('partyApp', [])
     });
 
     mopidy.on('event:trackPlaybackStarted', function (event) {
+      // Remember the track that was playing before, so "Last song" can replay it.
+      var newUri = event.tl_track && event.tl_track.track ? event.tl_track.track.uri : null;
+      if ($scope.currentState.track && $scope.currentState.track.uri &&
+          $scope.currentState.track.uri !== newUri) {
+        $scope.lastPlayedTrack = $scope.currentState.track;
+      }
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
       $scope.$apply();
+      $scope.refreshQueue();
     });
 
     mopidy.on('event:tracklistChanged', function () {
@@ -125,6 +136,7 @@ angular.module('partyApp', [])
         $scope.currentState.length = length;
         $scope.$apply();
       });
+      $scope.refreshQueue();
     });
 
     $scope.printDuration = function (track) {
@@ -315,14 +327,73 @@ angular.module('partyApp', [])
     };
 
     $scope.nextTrack = function () {
-      $http.get('/party_plus/vote').then(
-        function success(response) {
-          $scope.message = ['success', '' + response.data];
-        },
-        function error(response) {
-          $scope.message = ['error', '' + response.data];
+      // Instant host skip: advance the tracklist immediately (no voting).
+      mopidy.playback.next().then(function () {
+        $scope.$apply(function () {
+          $scope.message = ['success', 'Skipped to next track'];
+        });
+      }, function (err) {
+        $scope.$apply(function () {
+          $scope.message = ['error', 'Unable to skip: ' + err];
+        });
+      });
+    };
+
+    // Fetch the current tracklist (current + upcoming songs). With consume mode
+    // enabled, played tracks are removed, so the tracklist is effectively the queue.
+    $scope.refreshQueue = function () {
+      if (!mopidy.tracklist) {
+        return;
+      }
+      mopidy.tracklist.getTlTracks().then(function (tlTracks) {
+        mopidy.tracklist.index().then(function (currentIndex) {
+          var idx = (currentIndex === null || currentIndex === undefined) ? -1 : currentIndex;
+          $scope.$apply(function () {
+            $scope.queue = (tlTracks || []).map(function (tl, i) {
+              return {
+                track: tl.track,
+                tlid: tl.tlid,
+                position: i,
+                isCurrent: (i === idx)
+              };
+            });
+          });
+        });
+      });
+    };
+
+    $scope.toggleQueue = function () {
+      $scope.showQueue = !$scope.showQueue;
+      if ($scope.showQueue) {
+        $scope.refreshQueue();
+      }
+    };
+
+    // "Last song": replay the track that was just played. Because consume mode
+    // removes played tracks, we re-insert it at the current position and play it.
+    $scope.playLastSong = function () {
+      if (!$scope.lastPlayedTrack || !$scope.lastPlayedTrack.uri) {
+        $scope.message = ['error', 'No previous song to replay yet'];
+        return;
+      }
+      var uri = $scope.lastPlayedTrack.uri;
+      var name = $scope.lastPlayedTrack.name;
+      mopidy.tracklist.index().then(function (currentIndex) {
+        var at = (currentIndex === null || currentIndex === undefined) ? 0 : currentIndex;
+        return mopidy.tracklist.add({ uris: [uri], at_position: at });
+      }).then(function (tlTracks) {
+        if (tlTracks && tlTracks.length) {
+          mopidy.playback.play({ tlid: tlTracks[0].tlid }).then(function () {
+            $scope.$apply(function () {
+              $scope.message = ['success', 'Replaying: ' + name];
+            });
+          });
         }
-      );
+      }, function (err) {
+        $scope.$apply(function () {
+          $scope.message = ['error', 'Unable to replay last song: ' + err];
+        });
+      });
     };
 
     $scope.getTrackSource = function (track) {
@@ -355,7 +426,10 @@ angular.module('partyApp', [])
     $scope.seekTrack = function () {
       // Prevent position updates while seek is in progress
       $scope.isSliderDragging = true;
-      mopidy.playback.seek({value: Math.floor($scope.currentState.position)}).done(function() {
+      // Mopidy's seek RPC takes a "time_position" argument (in ms), NOT "value".
+      // Using the wrong name made every seek a silent no-op, so the slider could
+      // display the position but never actually move playback.
+      mopidy.playback.seek({time_position: Math.floor($scope.currentState.position)}).done(function() {
         // Re-enable position updates after seek completes
         setTimeout(function() {
           $scope.isSliderDragging = false;
@@ -372,7 +446,12 @@ angular.module('partyApp', [])
     };
 
     $scope.onSliderUp = function () {
-      $scope.isSliderDragging = false;
+      // Don't re-enable polling immediately — the seek triggered by ng-change is
+      // async, and the poll could otherwise snap the slider back to the old
+      // position before the seek lands. seekTrack()'s timeout re-enables it.
+      setTimeout(function () {
+        $scope.isSliderDragging = false;
+      }, 300);
     };
 
     // Update playback position every 200ms

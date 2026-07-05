@@ -28,10 +28,16 @@
             </button>
           {% end %}
           {% if not hide_skip %}
-            <button type="button" class="btn btn-primary" ng-model="button" ng-click="nextTrack()" ng-disabled="!ready || currentState.length === 0">
+            <button type="button" class="btn btn-primary" ng-model="button" ng-click="nextTrack()" ng-disabled="!ready || currentState.length === 0" title="Skip to next track">
               <span class="fas fa-step-forward"></span>
             </button>
           {% end %}
+          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || !lastPlayedTrack" title="Replay the last song that played">
+            <span class="fas fa-step-backward"></span>
+          </button>
+          <button type="button" class="btn btn-info" ng-model="button" ng-click="toggleQueue()" ng-disabled="!ready" title="Show/hide the queue" ng-class="{'active': showQueue}">
+            <span class="fas fa-list-ol"></span>
+          </button>
           <p><small>
             <span class="fas fa-music" ng-if="currentState.length > 0"></span>
             <span class="fas fa-exclamation-triangle" ng-if="currentState.length === 0"></span>
@@ -92,6 +98,33 @@
 
       <div class="alert" role="alert" ng-show="message.length" ng-class="{'alert-success' : (message[0] == 'success'), 'alert-danger' : (message[0] == 'error')}">
         {{! message[1] }}
+      </div>
+
+      <!-- Queue view -->
+      <div class="card" ng-show="showQueue" style="margin-top:20px">
+        <div class="card-header" style="display:flex; align-items:center; justify-content:space-between;">
+          <span><span class="fas fa-list-ol"></span> Queue <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
+          <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
+            <span class="fas fa-rotate-right"></span>
+          </button>
+        </div>
+        <ul class="list-group list-group-flush">
+          <li class="list-group-item" ng-repeat="item in queue" ng-class="{'list-group-item-success': item.isCurrent}">
+            <span ng-if="item.isCurrent" class="fas fa-volume-high" title="Now playing"></span>
+            <span ng-if="!item.isCurrent" style="opacity:0.5">{{! $index + 1 }}.</span>
+            {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
+            <small>
+              <span ng-if="item.track.artists">by</span>
+              <span ng-repeat="artist in item.track.artists">
+                <span ng-if="!$first"> & </span>
+                {{! artist.name }}
+              </span>
+            </small>
+          </li>
+          <li class="list-group-item" ng-if="queue.length === 0">
+            <small>The queue is empty. Add some songs!</small>
+          </li>
+        </ul>
       </div>
 
       <ul class="list-group" style="margin-top:20px">
