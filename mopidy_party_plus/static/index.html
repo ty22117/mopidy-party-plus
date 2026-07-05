@@ -19,9 +19,37 @@
     <div class="alert alert-info" role="alert" style="margin:0; padding:8px; border-radius:0; text-align:center; font-size:0.9em">
       <strong>Version 4</strong> - Party Plus Extension
     </div>
-    <div class="container-fluid" style="margin-top:20px">
-      <div class="row">
-        <div class="col-4">
+
+    <div class="container" style="margin-top:20px; max-width:720px;">
+
+      <!-- ===== Now Playing ===== -->
+      <div class="card card-body bg-light" style="text-align:center;">
+        <div style="font-size:1.15em; font-weight:bold;">
+          {{! currentState.track.name }}
+        </div>
+        <div>
+          <small>
+            <span ng-if="currentState.track.artists">by</span>
+            <span ng-repeat="artist in currentState.track.artists">
+              <span ng-if="!$first"> & </span>
+              {{! artist.name }}
+            </span>
+            <span>{{! printDuration(currentState.track) }}</span>
+          </small>
+        </div>
+
+        <!-- Playback Progress Slider -->
+        <div style="display:flex; align-items:center; gap:10px; margin-top:14px;">
+          <small>{{! printTime(currentState.position) }}</small>
+          <input type="range" class="form-range" style="flex:1;" min="0" max="{{! currentState.track.length || 100 }}" ng-model="currentState.position" ng-change="seekTrack()" ng-mousedown="onSliderDown()" ng-mouseup="onSliderUp()" ng-disabled="!ready || currentState.length === 0 || !currentState.track.length">
+          <small>{{! printDuration(currentState.track) }}</small>
+        </div>
+
+        <!-- Transport controls: back / play-pause / skip -->
+        <div style="margin-top:14px; display:flex; justify-content:center; gap:10px;">
+          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || (history.length === 0 && currentState.position <= 3000)" title="Previous / restart song">
+            <span class="fas fa-step-backward"></span>
+          </button>
           {% if not hide_pause %}
             <button type="button" class="btn" ng-model="button" ng-click="togglePause()" ng-disabled="!ready || currentState.length === 0" ng-class="{'btn-success' : currentState.paused, 'btn-danger': !currentState.paused}">
               <span class="fas fa-pause" ng-class="{'fa-play': currentState.paused, 'fa-pause' : !currentState.paused}"></span>
@@ -32,78 +60,33 @@
               <span class="fas fa-step-forward"></span>
             </button>
           {% end %}
-          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || history.length === 0" title="Replay the last song that played">
-            <span class="fas fa-step-backward"></span>
-          </button>
-          <button type="button" class="btn btn-info" ng-model="button" ng-click="toggleQueue()" ng-disabled="!ready" title="Show/hide the queue" ng-class="{'active': showQueue}">
-            <span class="fas fa-list-ol"></span>
-          </button>
-          <p><small>
-            <span class="fas fa-music" ng-if="currentState.length > 0"></span>
-            <span class="fas fa-exclamation-triangle" ng-if="currentState.length === 0"></span>
-            {{! currentState.length }} track{{! currentState.length != 1 ? 's' : '' }}
-          </small></p>
         </div>
-        <div class="col-8">
-          <div class="card card-body bg-light">
-            <span>{{! currentState.track.name }}
-              <small>
-                <span ng-if="currentState.track.artists">by</span>
-                <span ng-repeat="artist in currentState.track.artists">
-                  <span ng-if="!$first"> & </span>
-                  {{! artist.name }}
-                </span>
-              </small>
-              <small>{{! printDuration(currentState.track) }}</small>
-            </span>
-          </div>
-          <!-- Playback Progress Slider -->
-          <div style="margin-top: 10px; padding: 0 10px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <small>{{! printTime(currentState.position) }}</small>
-              <input type="range" class="form-range" style="flex: 1;" min="0" max="{{! currentState.track.length || 100 }}" ng-model="currentState.position" ng-change="seekTrack()" ng-mousedown="onSliderDown()" ng-mouseup="onSliderUp()" ng-disabled="!ready || currentState.length === 0 || !currentState.track.length">
-              <small>{{! printDuration(currentState.track) }}</small>
-            </div>
-          </div>
-          <!-- Volume Control -->
-          <div style="margin-top: 10px; padding: 0 10px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="fas fa-volume-low"></span>
-              <input type="range" class="form-range" style="flex: 1;" min="0" max="100" ng-model="currentState.volume" ng-change="setVolume()" ng-disabled="!ready">
-              <span class="fas fa-volume-high"></span>
-              <small>{{! currentState.volume }}%</small>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="col-12">
-          <form ng-submit="search()">
-            <input type="text" role="search" class="form-control" placeholder="Search..." ng-model="searchField" ng-disabled="!ready">
-          </form>
+
+        <!-- Volume Control -->
+        <div style="display:flex; align-items:center; gap:10px; margin-top:14px;">
+          <span class="fas fa-volume-low"></span>
+          <input type="range" class="form-range" style="flex:1;" min="0" max="100" ng-model="currentState.volume" ng-change="setVolume()" ng-disabled="!ready">
+          <span class="fas fa-volume-high"></span>
+          <small>{{! currentState.volume }}%</small>
         </div>
       </div>
 
-      <!-- Playlist/Album URL Input -->
-      <div class="row" style="margin-top: 10px;">
-        <div class="col-12">
-          <div class="input-group">
-            <input type="text" class="form-control" placeholder="Paste YouTube/Spotify playlist or album URL..." ng-model="playlistUrl" ng-disabled="!ready">
-            <button class="btn btn-primary" type="button" ng-click="addPlaylist()" ng-disabled="!ready || !playlistUrl">
-              <span class="fas fa-plus"></span> Add Playlist
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="alert" role="alert" ng-show="message.length" ng-class="{'alert-success' : (message[0] == 'success'), 'alert-danger' : (message[0] == 'error')}">
-        {{! message[1] }}
+      <!-- ===== Queue toolbar ===== -->
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px;">
+        <button type="button" class="btn btn-info" ng-model="button" ng-click="toggleQueue()" ng-disabled="!ready" ng-class="{'active': showQueue}">
+          <span class="fas fa-list-ol"></span> Queue
+        </button>
+        <small>
+          <span class="fas fa-music" ng-if="currentState.length > 0"></span>
+          <span class="fas fa-exclamation-triangle" ng-if="currentState.length === 0"></span>
+          {{! currentState.length }} track{{! currentState.length != 1 ? 's' : '' }}
+        </small>
       </div>
 
       <!-- Queue view -->
-      <div class="card" ng-show="showQueue" style="margin-top:20px">
+      <div class="card" ng-show="showQueue" style="margin-top:10px;">
         <div class="card-header" style="display:flex; align-items:center; justify-content:space-between;">
-          <span><span class="fas fa-list-ol"></span> Queue <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
+          <span>Up next <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
           <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
             <span class="fas fa-rotate-right"></span>
           </button>
@@ -126,6 +109,24 @@
         </ul>
       </div>
 
+      <!-- ===== Add music ===== -->
+      <div style="margin-top:16px;">
+        <form ng-submit="search()">
+          <input type="text" role="search" class="form-control" placeholder="Search for songs to add..." ng-model="searchField" ng-disabled="!ready">
+        </form>
+        <div class="input-group" style="margin-top:10px;">
+          <input type="text" class="form-control" placeholder="Paste YouTube/Spotify playlist or album URL..." ng-model="playlistUrl" ng-disabled="!ready">
+          <button class="btn btn-primary" type="button" ng-click="addPlaylist()" ng-disabled="!ready || !playlistUrl">
+            <span class="fas fa-plus"></span> Add Playlist
+          </button>
+        </div>
+      </div>
+
+      <div class="alert" role="alert" ng-show="message.length" ng-class="{'alert-success' : (message[0] == 'success'), 'alert-danger' : (message[0] == 'error')}">
+        {{! message[1] }}
+      </div>
+
+      <!-- ===== Search results ===== -->
       <ul class="list-group" style="margin-top:20px">
         <li class="list-group-item" ng-repeat="track in tracks">
           <button type="button" class="btn btn-xs btn-success add-button" ng-model="button" ng-click="addTrack(track)" ng-disabled="track.disabled">
@@ -134,7 +135,7 @@
           </button>
           {{! track.name }} <small>{{! printDuration(track) }}</small><br>
           <small>
-            {{! track.album.name }}
+            {{! track.album.name }}
             <span ng-if="track.artists">by</span>
             <span ng-repeat="artist in track.artists">
               <span ng-if="!$first"> & </span>
@@ -151,8 +152,8 @@
         <p><span class="fas fa-hourglass"></span> Loading...</p>
       </div>
       <div ng-show="searching" class="container-fluid">
-        <p><span style="text-transform: uppercase;">Searching: 
-              <span class="fas fa-magnifying-glass"></span> 
+        <p><span style="text-transform: uppercase;">Searching:
+              <span class="fas fa-magnifying-glass"></span>
            </span>
            <span ng-repeat="source in searchingSources" style="margin-right: 10px;">
               <span style="text-transform: uppercase;">
