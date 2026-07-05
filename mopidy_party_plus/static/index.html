@@ -32,7 +32,7 @@
               <span class="fas fa-step-forward"></span>
             </button>
           {% end %}
-          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || !lastPlayedTrack" title="Replay the last song that played">
+          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || history.length === 0" title="Replay the last song that played">
             <span class="fas fa-step-backward"></span>
           </button>
           <button type="button" class="btn btn-info" ng-model="button" ng-click="toggleQueue()" ng-disabled="!ready" title="Show/hide the queue" ng-class="{'active': showQueue}">

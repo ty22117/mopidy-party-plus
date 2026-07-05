@@ -1,7 +1,7 @@
 'use strict';
 
-// VERSION MARKER v3: seek fix + queue view + instant skip + last-song
-console.log("[PARTY_PLUS] Frontend version: 1.4.0-PARTY_PLUS_v3");
+// VERSION MARKER v4: full back-history stack (fixes two-song ping-pong)
+console.log("[PARTY_PLUS] Frontend version: 1.5.0-PARTY_PLUS_v4");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
@@ -34,7 +34,8 @@ angular.module('partyApp', [])
     $scope.isSliderDragging = false;
     $scope.queue = [];            // upcoming/current tracks in the tracklist
     $scope.showQueue = false;     // toggle for the queue panel
-    $scope.lastPlayedTrack = null; // the track that was playing before the current one
+    $scope.history = [];          // stack of previously-played tracks, most recent last
+    $scope.pendingBackNav = 0;    // how many "back" replays are in flight (skip history push for these)
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/party_plus/config?key=max_results').then(function success (response) {
@@ -119,11 +120,16 @@ angular.module('partyApp', [])
     });
 
     mopidy.on('event:trackPlaybackStarted', function (event) {
-      // Remember the track that was playing before, so "Last song" can replay it.
       var newUri = event.tl_track && event.tl_track.track ? event.tl_track.track.uri : null;
-      if ($scope.currentState.track && $scope.currentState.track.uri &&
-          $scope.currentState.track.uri !== newUri) {
-        $scope.lastPlayedTrack = $scope.currentState.track;
+      var prev = $scope.currentState.track;
+      if ($scope.pendingBackNav > 0) {
+        // This playback was triggered by a "back" replay, not natural progression.
+        // Don't push onto history, otherwise we'd just ping-pong between two songs.
+        $scope.pendingBackNav--;
+      } else if (prev && prev.uri && prev.uri !== newUri) {
+        // A song finished (or was skipped) and the next one started: remember the
+        // one that just played so we can back up through the full history.
+        $scope.history.push(prev);
       }
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
@@ -369,15 +375,20 @@ angular.module('partyApp', [])
       }
     };
 
-    // "Last song": replay the track that was just played. Because consume mode
-    // removes played tracks, we re-insert it at the current position and play it.
+    // "Last song": step back through the history of played tracks. Because consume
+    // mode removes played tracks from the tracklist, we pop the most recent one off
+    // the history stack, re-insert it at the current position, and play it.
     $scope.playLastSong = function () {
-      if (!$scope.lastPlayedTrack || !$scope.lastPlayedTrack.uri) {
+      if (!$scope.history.length) {
         $scope.message = ['error', 'No previous song to replay yet'];
         return;
       }
-      var uri = $scope.lastPlayedTrack.uri;
-      var name = $scope.lastPlayedTrack.name;
+      var prevTrack = $scope.history.pop();
+      var uri = prevTrack.uri;
+      var name = prevTrack.name;
+      // Mark this playback as a "back" navigation so trackPlaybackStarted doesn't
+      // record it as history (which is what caused the two-song ping-pong).
+      $scope.pendingBackNav++;
       mopidy.tracklist.index().then(function (currentIndex) {
         var at = (currentIndex === null || currentIndex === undefined) ? 0 : currentIndex;
         return mopidy.tracklist.add({ uris: [uri], at_position: at });
@@ -388,8 +399,14 @@ angular.module('partyApp', [])
               $scope.message = ['success', 'Replaying: ' + name];
             });
           });
+        } else {
+          // Add failed: undo the bookkeeping so we don't get stuck.
+          $scope.pendingBackNav = Math.max(0, $scope.pendingBackNav - 1);
+          $scope.history.push(prevTrack);
         }
       }, function (err) {
+        $scope.pendingBackNav = Math.max(0, $scope.pendingBackNav - 1);
+        $scope.history.push(prevTrack);
         $scope.$apply(function () {
           $scope.message = ['error', 'Unable to replay last song: ' + err];
         });
