@@ -32,6 +32,7 @@ angular.module('partyApp', [])
     $scope.sources_priority = ['local'];       // Will be overwritten later by module config
     $scope.prioritized_sources = [];
     $scope.isSliderDragging = false;
+    $scope.suppressSeek = false;  // true while we set the position programmatically, so the slider's ng-change doesn't issue a bogus seek
     $scope.queue = [];            // upcoming/current tracks in the tracklist
     $scope.showQueue = false;     // toggle for the queue panel
     $scope.history = [];              // stack of previously-played tracks, most recent last
@@ -99,7 +100,14 @@ angular.module('partyApp', [])
           $scope.ready = true;
           $scope.loading = false;
           $scope.searching = false;
+          // The first digest renders the slider at the real position while its max
+          // is briefly still 100ms; suppress the resulting clamp/ng-change so we
+          // don't seek (which restarted the song on load).
+          $scope.suppressSeek = true;
           $scope.$apply();
+          setTimeout(function () {
+            $scope.suppressSeek = false;
+          }, 0);
           $scope.search();
           $scope.refreshQueue();
         });
@@ -461,7 +469,15 @@ angular.module('partyApp', [])
     };
 
     $scope.seekTrack = function () {
-      // Prevent position updates while seek is in progress
+      // The range slider's ng-change also fires when WE update currentState.position
+      // (initial load and the 200ms poll). On load the slider's max is briefly 100ms
+      // until the track length is known, so AngularJS clamps the value and fires a
+      // change that seeked to ~0 -- restarting the song on every page load. Ignore
+      // those programmatic changes; only real user drags should seek.
+      if ($scope.suppressSeek) {
+        return;
+      }
+      // Prevent position updates (the poll) from fighting the seek while it's in flight.
       $scope.isSliderDragging = true;
       // Mopidy's seek RPC takes a "time_position" argument (in ms), NOT "value".
       // Using the wrong name made every seek a silent no-op, so the slider could
@@ -473,6 +489,17 @@ angular.module('partyApp', [])
         }, 300);
       });
     };
+
+    // Update currentState.position without letting the slider's ng-change treat it
+    // as a user seek. Clears the flag on the next tick, after the digest (and any
+    // resulting clamp/ng-change) has run.
+    function setPositionSilently(position) {
+      $scope.suppressSeek = true;
+      $scope.currentState.position = position;
+      setTimeout(function () {
+        $scope.suppressSeek = false;
+      }, 0);
+    }
 
     $scope.setVolume = function () {
       mopidy.mixer.setVolume({volume: Math.floor($scope.currentState.volume)}).done();
@@ -497,7 +524,7 @@ angular.module('partyApp', [])
         mopidy.playback.getTimePosition().done(function (position) {
           if (position !== undefined && position !== null) {
             $scope.$apply(function () {
-              $scope.currentState.position = position;
+              setPositionSilently(position);
             });
           }
         });
