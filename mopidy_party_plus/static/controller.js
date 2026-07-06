@@ -35,6 +35,7 @@ angular.module('partyApp', [])
     $scope.suppressSeek = false;  // true while we set the position programmatically, so the slider's ng-change doesn't issue a bogus seek
     $scope.queue = [];            // upcoming/current tracks in the tracklist
     $scope.showQueue = false;     // toggle for the queue panel
+    $scope.isSortingQueue = false; // true while dragging a queue item (pauses queue refresh so it isn't clobbered mid-drag)
     $scope.history = [];              // stack of previously-played tracks, most recent last
     $scope.suppressHistoryUri = null; // URI whose next "ended" event should NOT be recorded (set during a back-jump)
 
@@ -363,7 +364,8 @@ angular.module('partyApp', [])
     // Fetch the current tracklist (current + upcoming songs). With consume mode
     // enabled, played tracks are removed, so the tracklist is effectively the queue.
     $scope.refreshQueue = function () {
-      if (!mopidy.tracklist) {
+      if (!mopidy.tracklist || $scope.isSortingQueue) {
+        // Don't rebuild the list from the server while the user is dragging an item.
         return;
       }
       mopidy.tracklist.getTlTracks().then(function (tlTracks) {
@@ -429,6 +431,27 @@ angular.module('partyApp', [])
     $scope.moveDown = function (item) {
       var p = item.position;
       mopidy.tracklist.move([p, p + 1, p + 1]).then(function () {
+        $scope.refreshQueue();
+      });
+    };
+
+    // Called by the drag-and-drop directive when a queue item is dropped. The
+    // directive has already reordered $scope.queue live, so queue[to] is the
+    // dragged item and its .position still holds its original tracklist index.
+    // Commit the reorder to Mopidy with a single tracklist.move.
+    $scope.onQueueSorted = function (from, to) {
+      if (from === to) {
+        $scope.refreshQueue();
+        return;
+      }
+      var item = $scope.queue[to];
+      if (!item) {
+        $scope.refreshQueue();
+        return;
+      }
+      var origTlPos = item.position;         // dragged item's tracklist index before the move
+      var newTlPos = origTlPos - from + to;  // queue block is contiguous, so shift by the same delta
+      mopidy.tracklist.move([origTlPos, origTlPos + 1, newTlPos]).then(function () {
         $scope.refreshQueue();
       });
     };
@@ -571,6 +594,94 @@ angular.module('partyApp', [])
         });
       }
     }, 200);
+  })
+  // Drag-and-drop reordering for the queue. Uses Pointer Events so it works with
+  // both a mouse and touch (phones). Dragging starts from an element with class
+  // "drag-handle"; each reorderable row is marked with the "data-sortable-item"
+  // attribute. As the pointer moves, the bound array (dnd-sortable) is reordered
+  // live so the rows shift under the finger; on release, dnd-on-sort is evaluated
+  // with $from / $to (the start and end indices) to commit the change.
+  .directive('dndSortable', function () {
+    return {
+      restrict: 'A',
+      link: function (scope, element, attrs) {
+        var listEl = element[0];
+        var startIndex = null;   // row index where the drag began
+        var currentIndex = null; // row index the dragged item currently occupies
+        var activePointer = null;
+
+        function itemRows() {
+          return Array.prototype.slice.call(
+            listEl.querySelectorAll('[data-sortable-item]')
+          );
+        }
+
+        function onDown(e) {
+          var handle = e.target.closest ? e.target.closest('.drag-handle') : null;
+          if (!handle) {
+            return;
+          }
+          var row = handle.closest('[data-sortable-item]');
+          if (!row) {
+            return;
+          }
+          startIndex = itemRows().indexOf(row);
+          if (startIndex < 0) {
+            startIndex = null;
+            return;
+          }
+          currentIndex = startIndex;
+          activePointer = e.pointerId;
+          e.preventDefault();
+          try { listEl.setPointerCapture(activePointer); } catch (err) { /* ignore */ }
+          row.classList.add('dnd-dragging');
+          scope.$apply(function () { scope.isSortingQueue = true; });
+        }
+
+        function onMove(e) {
+          if (startIndex === null) {
+            return;
+          }
+          e.preventDefault();
+          var rows = itemRows();
+          var y = e.clientY;
+          var target = rows.length - 1;
+          for (var i = 0; i < rows.length; i++) {
+            var r = rows[i].getBoundingClientRect();
+            if (y < r.top + r.height / 2) { target = i; break; }
+          }
+          if (target !== currentIndex && target >= 0) {
+            scope.$apply(function () {
+              var arr = scope.$eval(attrs.dndSortable);
+              var moved = arr.splice(currentIndex, 1)[0];
+              arr.splice(target, 0, moved);
+            });
+            currentIndex = target;
+          }
+        }
+
+        function onUp() {
+          if (startIndex === null) {
+            return;
+          }
+          try { listEl.releasePointerCapture(activePointer); } catch (err) { /* ignore */ }
+          itemRows().forEach(function (r) { r.classList.remove('dnd-dragging'); });
+          var from = startIndex, to = currentIndex;
+          startIndex = null;
+          currentIndex = null;
+          activePointer = null;
+          scope.$apply(function () {
+            scope.isSortingQueue = false;
+            scope.$eval(attrs.dndOnSort, { $from: from, $to: to });
+          });
+        }
+
+        listEl.addEventListener('pointerdown', onDown);
+        listEl.addEventListener('pointermove', onMove);
+        listEl.addEventListener('pointerup', onUp);
+        listEl.addEventListener('pointercancel', onUp);
+      }
+    };
   });
 
 function getPrioritizedSources (availablesources, sourceprio, blacklist) {

@@ -26,3 +26,16 @@ body {
   float: right;
   text-transform: uppercase;
 }
+.drag-handle {
+  cursor: grab;
+  touch-action: none; /* let the handle capture drags instead of scrolling the page */
+  opacity: 0.5;
+  padding: 0 4px;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.dnd-dragging {
+  opacity: 0.6;
+  background: #444 !important;
+}

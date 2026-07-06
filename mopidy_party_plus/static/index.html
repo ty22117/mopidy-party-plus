@@ -96,8 +96,11 @@
             </button>
           </span>
         </div>
-        <ul class="list-group list-group-flush">
-          <li class="list-group-item" ng-repeat="item in queue" style="display:flex; align-items:center; gap:8px;">
+        <ul class="list-group list-group-flush" dnd-sortable="queue" dnd-on-sort="onQueueSorted($from, $to)">
+          <li class="list-group-item" ng-repeat="item in queue" data-sortable-item style="display:flex; align-items:center; gap:8px;">
+            <span class="drag-handle" title="Drag to reorder">
+              <span class="fas fa-grip-vertical"></span>
+            </span>
             <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
             <span style="flex:1;">
               {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
@@ -110,12 +113,6 @@
               </small>
             </span>
             <span style="white-space:nowrap;">
-              <button type="button" class="btn btn-xs" ng-click="moveUp(item)" ng-disabled="$first" title="Move up">
-                <span class="fas fa-arrow-up"></span>
-              </button>
-              <button type="button" class="btn btn-xs" ng-click="moveDown(item)" ng-disabled="$last" title="Move down">
-                <span class="fas fa-arrow-down"></span>
-              </button>
               <button type="button" class="btn btn-xs btn-danger" ng-click="removeFromQueue(item)" title="Remove from queue">
                 <span class="fas fa-xmark"></span>
               </button>
