@@ -392,6 +392,47 @@ angular.module('partyApp', [])
       }
     };
 
+    // Remove a single upcoming track from the queue.
+    $scope.removeFromQueue = function (item) {
+      if (!item || item.tlid === undefined || item.tlid === null) {
+        return;
+      }
+      mopidy.tracklist.remove([{ tlid: [item.tlid] }]).then(function () {
+        $scope.refreshQueue();
+      });
+    };
+
+    // Clear the whole queue (all upcoming tracks). The currently-playing song is
+    // not part of the queue, so it keeps playing.
+    $scope.clearQueue = function () {
+      var tlids = $scope.queue.map(function (item) { return item.tlid; });
+      if (!tlids.length) {
+        return;
+      }
+      mopidy.tracklist.remove([{ tlid: tlids }]).then(function () {
+        $scope.message = ['success', 'Cleared the queue'];
+        $scope.$apply();
+        $scope.refreshQueue();
+      });
+    };
+
+    // Move an upcoming track one slot earlier/later. Mopidy's move takes a slice
+    // [start, end) and a destination index; moving a single track at position p up
+    // means slice [p, p+1) -> p-1, and down means -> p+1.
+    $scope.moveUp = function (item) {
+      var p = item.position;
+      mopidy.tracklist.move([p, p + 1, p - 1]).then(function () {
+        $scope.refreshQueue();
+      });
+    };
+
+    $scope.moveDown = function (item) {
+      var p = item.position;
+      mopidy.tracklist.move([p, p + 1, p + 1]).then(function () {
+        $scope.refreshQueue();
+      });
+    };
+
     // "Last song": step back through the history of played tracks. Because consume
     // mode removes played tracks from the tracklist, we pop the most recent one off
     // the history stack, re-insert it at the current position, and play it.

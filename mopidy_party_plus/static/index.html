@@ -87,21 +87,39 @@
       <div class="card" ng-show="showQueue" style="margin-top:10px;">
         <div class="card-header" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Up next <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
-          <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
-            <span class="fas fa-rotate-right"></span>
-          </button>
+          <span style="white-space:nowrap;">
+            <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
+              <span class="fas fa-rotate-right"></span>
+            </button>
+            <button type="button" class="btn btn-xs btn-danger" ng-click="clearQueue()" ng-disabled="queue.length === 0" title="Clear the whole queue">
+              <span class="fas fa-trash"></span> Clear
+            </button>
+          </span>
         </div>
         <ul class="list-group list-group-flush">
-          <li class="list-group-item" ng-repeat="item in queue">
-            <span style="opacity:0.5">{{! $index + 1 }}.</span>
-            {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
-            <small>
-              <span ng-if="item.track.artists">by</span>
-              <span ng-repeat="artist in item.track.artists">
-                <span ng-if="!$first"> & </span>
-                {{! artist.name }}
-              </span>
-            </small>
+          <li class="list-group-item" ng-repeat="item in queue" style="display:flex; align-items:center; gap:8px;">
+            <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
+            <span style="flex:1;">
+              {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
+              <small>
+                <span ng-if="item.track.artists">by</span>
+                <span ng-repeat="artist in item.track.artists">
+                  <span ng-if="!$first"> & </span>
+                  {{! artist.name }}
+                </span>
+              </small>
+            </span>
+            <span style="white-space:nowrap;">
+              <button type="button" class="btn btn-xs" ng-click="moveUp(item)" ng-disabled="$first" title="Move up">
+                <span class="fas fa-arrow-up"></span>
+              </button>
+              <button type="button" class="btn btn-xs" ng-click="moveDown(item)" ng-disabled="$last" title="Move down">
+                <span class="fas fa-arrow-down"></span>
+              </button>
+              <button type="button" class="btn btn-xs btn-danger" ng-click="removeFromQueue(item)" title="Remove from queue">
+                <span class="fas fa-xmark"></span>
+              </button>
+            </span>
           </li>
           <li class="list-group-item" ng-if="queue.length === 0">
             <small>The queue is empty. Add some songs!</small>
