@@ -92,7 +92,7 @@ class VoteRequestHandler(tornado.web.RequestHandler):
     def initialize(self, core, data, config):
         self.core = core
         self.data = data
-        self.requiredVotes = config["party_plus"]["votes_to_skip"]
+        self.requiredVotes = config["netjammer"]["votes_to_skip"]
 
     def _getip(self):
         return self.request.headers.get("X-Forwarded-For", self.request.remote_ip)
@@ -128,7 +128,7 @@ class AddRequestHandler(tornado.web.RequestHandler):
     def initialize(self, core, data, config):
         self.core = core
         self.data = data
-        self.maxQueueLength = config["party_plus"]["max_queue_length"]
+        self.maxQueueLength = config["netjammer"]["max_queue_length"]
 
     def _getip(self):
         return self.request.headers.get("X-Forwarded-For", self.request.remote_ip)
@@ -178,7 +178,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
         self.core = core
         self.data = data
         self.config = config
-        self.maxQueueLength = config["party_plus"]["max_queue_length"]
+        self.maxQueueLength = config["netjammer"]["max_queue_length"]
 
     def _getip(self):
         return self.request.headers.get("X-Forwarded-For", self.request.remote_ip)
@@ -226,7 +226,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
             added_count = 0
             for track_uri in tracks:
                 try:
-                    print(f"[PARTY_PLUS] Adding track: {track_uri}")
+                    print(f"[NETJammer] Adding track: {track_uri}")
 
                     pos = 0
                     if self.data["last"]:
@@ -237,7 +237,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
                             pos >= self.maxQueueLength - 1
                         ):
                             print(
-                                "[PARTY_PLUS] Max queue length reached, stopping playlist import."
+                                "[NETJammer] Max queue length reached, stopping playlist import."
                             )
                             break
 
@@ -254,7 +254,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
 
                     added_count += 1
                 except Exception as e:
-                    print(f"[PARTY_PLUS] Error adding track {track_uri}: {repr(e)}")
+                    print(f"[NETJammer] Error adding track {track_uri}: {repr(e)}")
 
             # CRITICAL FIX: Trigger playback ONCE after all tracks have been processed
             if added_count > 0 and self.core.playback.get_state().get() == "stopped":
@@ -285,7 +285,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
             )
 
         try:
-            print(f"[PARTY_PLUS] Extracting YouTube playlist from: {url}")
+            print(f"[NETJammer] Extracting YouTube playlist from: {url}")
             ydl_opts = {
                 "quiet": True,
                 "no_warnings": True,
@@ -298,7 +298,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
 
             tracks = []
             if "entries" in info:
-                print(f"[PARTY_PLUS] Found {len(info['entries'])} entries in playlist")
+                print(f"[NETJammer] Found {len(info['entries'])} entries in playlist")
                 for entry in info["entries"]:
                     if entry:
                         video_id = entry.get("id")
@@ -307,19 +307,19 @@ class PlaylistHandler(tornado.web.RequestHandler):
                             # Using full "youtube:video:ID" format ensures proper colon-based parsing
                             video_uri = f"youtube:video:{video_id}"
                             tracks.append(video_uri)
-                            print(f"[PARTY_PLUS] Added video URI: {video_uri}")
+                            print(f"[NETJammer] Added video URI: {video_uri}")
             else:
                 # Single video
                 video_id = info.get("id")
                 if video_id:
                     video_uri = f"youtube:video:{video_id}"
                     tracks.append(video_uri)
-                    print(f"[PARTY_PLUS] Added single video URI: {video_uri}")
+                    print(f"[NETJammer] Added single video URI: {video_uri}")
 
-            print(f"[PARTY_PLUS] Total tracks extracted: {len(tracks)}")
+            print(f"[NETJammer] Total tracks extracted: {len(tracks)}")
             return tracks
         except Exception as e:
-            print(f"[PARTY_PLUS] Error extracting YouTube playlist: {repr(e)}")
+            print(f"[NETJammer] Error extracting YouTube playlist: {repr(e)}")
             raise Exception(f"Failed to extract YouTube playlist: {repr(e)}")
 
     def _extract_spotify_playlist(self, url):
@@ -359,8 +359,8 @@ class IndexHandler(tornado.web.RequestHandler):
 
     def initialize(self, config):
         self.__dict = {}
-        # Make the configuration from mopidy.conf [party_plus] section available as variables in index.html
-        for conf_key, value in config["party_plus"].items():
+        # Make the configuration from mopidy.conf [netjammer] section available as variables in index.html
+        for conf_key, value in config["netjammer"].items():
             if conf_key != "enabled":
                 self.__dict[conf_key] = value
 
@@ -371,7 +371,7 @@ class IndexHandler(tornado.web.RequestHandler):
 class ConfigHandler(tornado.web.RequestHandler):
 
     def initialize(self, config):
-        self.party_cfg = config["party_plus"]
+        self.party_cfg = config["netjammer"]
 
     def get(self):
         conf_key = self.get_argument("key")
@@ -425,7 +425,7 @@ def party_factory(config, core):
     data = {
         "track": "",
         "votes": [],
-        "queue": [None] * config["party_plus"]["max_tracks"],
+        "queue": [None] * config["netjammer"]["max_tracks"],
         "last": None,
         "errors": deque(maxlen=50),
         "error_seq": 0,
@@ -455,8 +455,8 @@ def party_factory(config, core):
 
 
 class Extension(ext.Extension):
-    dist_name = "Mopidy-Party-Plus"
-    ext_name = "party_plus"
+    dist_name = "Mopidy-NETJammer"
+    ext_name = "netjammer"
     version = __version__
 
     def get_default_config(self):

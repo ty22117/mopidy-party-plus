@@ -10,8 +10,8 @@ def get_version(filename):
 
 
 setup(
-    name="Mopidy-Party-Plus",
-    version="1.3.1",
+    name="Mopidy-NETJammer",
+    version="1.5.0",
     url="https://github.com/ty22117/mopidy-party-plus",
     license="Apache License, Version 2.0",
     author="Loick Bonniot",
@@ -28,7 +28,7 @@ setup(
     ],
     entry_points={
         "mopidy.ext": [
-            "party_plus = mopidy_party_plus:Extension",
+            "netjammer = mopidy_party_plus:Extension",
         ],
     },
     classifiers=[

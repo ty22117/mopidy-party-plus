@@ -59,7 +59,7 @@ angular.module('partyApp', [])
     var lastErrorId = null; // null until the first poll establishes a baseline
     $scope.pollErrors = function () {
       var since = (lastErrorId === null) ? '' : lastErrorId;
-      $http.get('/party_plus/errors', { params: { since: since } }).then(function (resp) {
+      $http.get('/netjammer/errors', { params: { since: since } }).then(function (resp) {
         var d = resp.data || {};
         if (lastErrorId === null) {
           // First poll: remember where we are, don't replay pre-existing errors.
@@ -96,27 +96,27 @@ angular.module('partyApp', [])
     }
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
-    $http.get('/party_plus/config?key=max_results').then(function success (response) {
+    $http.get('/netjammer/config?key=max_results').then(function success (response) {
       if (response.status == 200) {
         $scope.maxTracksToLookup = response.data;
       }
     }, null);
 
     // Get the max song length 'max_song_duration' config value in mopidy.conf (minutes)
-    $http.get('/party_plus/config?key=max_song_duration').then(function success (response) {
+    $http.get('/netjammer/config?key=max_song_duration').then(function success (response) {
       if (response.status == 200) {
         $scope.maxSongLengthMS = response.data * 60000;
       }
     }, null);
 
     // Get the source priority list
-    $http.get('/party_plus/config?key=source_prio').then(function success (response) {
+    $http.get('/netjammer/config?key=source_prio').then(function success (response) {
       if (response.status == 200) {
         $scope.sources_priority = [...data.matchAll(/\w+/g)].map(x => x[0]);
       }
     }, null);
     // Get the source blacklist
-    $http.get('/party_plus/config?key=source_blacklist').then(function success (response) {
+    $http.get('/netjammer/config?key=source_blacklist').then(function success (response) {
       if (response.status == 200) {
         $scope.sources_blacklist = [...data.matchAll(/\w+/g)].map(x => x[0]);
       }
@@ -357,7 +357,7 @@ angular.module('partyApp', [])
     $scope.addTrack = function (track) {
       track.disabled = true;
 
-      $http.post('/party_plus/add', track.uri).then(
+      $http.post('/netjammer/add', track.uri).then(
         function success(response) {
           $scope.message = ['success', 'Queued: ' + track.name];
         },
@@ -382,7 +382,7 @@ angular.module('partyApp', [])
         source: 'auto'
       };
 
-      $http.post('/party_plus/playlist', JSON.stringify(requestData), {
+      $http.post('/netjammer/playlist', JSON.stringify(requestData), {
         headers: {'Content-Type': 'application/json'}
       }).then(
         function success(response) {
