@@ -87,12 +87,44 @@ class PlaybackErrorLogHandler(logging.Handler):
             pass
 
 
+# Fallback values, matching ext.conf, so the web app never hard-crashes if a
+# config value fails to resolve (which otherwise takes the whole page down).
+_DEFAULTS = {
+    "votes_to_skip": 3,
+    "max_tracks": 0,
+    "max_results": 50,
+    "max_queue_length": 0,
+    "max_song_duration": 0,
+    "hide_pause": False,
+    "hide_skip": False,
+    "style": "dark.css",
+    "source_prio": "local\nspotify\ntidal\nyoutube",
+    "source_blacklist": "cd",
+}
+
+
+def _section(config):
+    try:
+        return config["netjammer"]
+    except (KeyError, TypeError):
+        return {}
+
+
+def _conf(config, key):
+    """Read a [netjammer] config value, falling back to the built-in default."""
+    try:
+        value = _section(config)[key]
+    except (KeyError, TypeError):
+        value = None
+    return _DEFAULTS.get(key) if value is None else value
+
+
 class VoteRequestHandler(tornado.web.RequestHandler):
 
     def initialize(self, core, data, config):
         self.core = core
         self.data = data
-        self.requiredVotes = config["netjammer"]["votes_to_skip"]
+        self.requiredVotes = _conf(config, "votes_to_skip")
 
     def _getip(self):
         return self.request.headers.get("X-Forwarded-For", self.request.remote_ip)
@@ -128,7 +160,7 @@ class AddRequestHandler(tornado.web.RequestHandler):
     def initialize(self, core, data, config):
         self.core = core
         self.data = data
-        self.maxQueueLength = config["netjammer"]["max_queue_length"]
+        self.maxQueueLength = _conf(config, "max_queue_length")
 
     def _getip(self):
         return self.request.headers.get("X-Forwarded-For", self.request.remote_ip)
@@ -178,7 +210,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
         self.core = core
         self.data = data
         self.config = config
-        self.maxQueueLength = config["netjammer"]["max_queue_length"]
+        self.maxQueueLength = _conf(config, "max_queue_length")
 
     def _getip(self):
         return self.request.headers.get("X-Forwarded-For", self.request.remote_ip)
@@ -358,9 +390,19 @@ class PlaylistHandler(tornado.web.RequestHandler):
 class IndexHandler(tornado.web.RequestHandler):
 
     def initialize(self, config):
-        self.__dict = {}
+        # Start from safe defaults so the template always has the variables it
+        # references (style, hide_pause, hide_skip); then overlay real config.
+        self.__dict = {
+            "style": _DEFAULTS["style"],
+            "hide_pause": _DEFAULTS["hide_pause"],
+            "hide_skip": _DEFAULTS["hide_skip"],
+        }
         # Make the configuration from mopidy.conf [netjammer] section available as variables in index.html
-        for conf_key, value in config["netjammer"].items():
+        try:
+            items = list(_section(config).items())
+        except (AttributeError, TypeError):
+            items = []
+        for conf_key, value in items:
             if conf_key != "enabled":
                 self.__dict[conf_key] = value
 
@@ -371,25 +413,25 @@ class IndexHandler(tornado.web.RequestHandler):
 class ConfigHandler(tornado.web.RequestHandler):
 
     def initialize(self, config):
-        self.party_cfg = config["netjammer"]
+        self.config = config
 
     def get(self):
-        conf_key = self.get_argument("key")
-        if conf_key == []:
+        conf_key = self.get_argument("key", default="")
+        if not conf_key:
             self.set_status(400)
             self.write("Query parameter 'key' not present")
             return
         try:
-            value = self.party_cfg[conf_key]
-            self.write(repr(value))
-        except KeyError:
+            value = _section(self.config)[conf_key]
+        except (KeyError, TypeError):
+            value = None
+        if value is None and conf_key in _DEFAULTS:
+            value = _DEFAULTS[conf_key]
+        if value is None:
             self.set_status(404)
-            self.write("Party configuration '" + conf_key + "' not found")
+            self.write("Configuration '" + conf_key + "' not found")
             return
-        except Exception as e:
-            self.set_status(500)
-            self.write("Internal server error: " + repr(e))
-            return
+        self.write(repr(value))
 
 
 class ErrorsHandler(tornado.web.RequestHandler):
@@ -425,7 +467,7 @@ def party_factory(config, core):
     data = {
         "track": "",
         "votes": [],
-        "queue": [None] * config["netjammer"]["max_tracks"],
+        "queue": [None] * _conf(config, "max_tracks"),
         "last": None,
         "errors": deque(maxlen=50),
         "error_seq": 0,
