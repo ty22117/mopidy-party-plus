@@ -20,10 +20,26 @@
       <strong>Version 4</strong> - Party Plus Extension
     </div>
 
-    <div class="container-fluid" style="margin-top:20px;">
+    <!-- ===== Top bar ===== -->
+    <div class="topbar">
+      <button type="button" class="btn btn-info" ng-click="toggleQueue()" ng-disabled="!ready" ng-class="{'active': showQueue}">
+        <span class="fas fa-list-ol"></span> Queue
+        <span class="badge bg-dark" ng-if="queue.length">{{! queue.length }}</span>
+      </button>
+      <strong class="topbar-title">Party Plus</strong>
+      <button type="button" class="btn btn-primary" ng-click="toggleSearch()" ng-disabled="!ready" ng-class="{'active': showSearch}">
+        <span class="fas fa-magnifying-glass"></span> Add Music
+      </button>
+    </div>
 
-      <!-- ===== Now Playing ===== -->
-      <div class="card card-body bg-light" style="text-align:center;">
+    <!-- ===== Now Playing ===== -->
+    <div class="container-fluid" style="margin-top:20px;">
+      <div class="card card-body bg-light now-playing">
+        <img class="album-art" ng-if="albumArt" ng-src="{{! albumArt }}" alt="Album art">
+        <div class="album-art album-art-placeholder" ng-if="!albumArt">
+          <span class="fas fa-music"></span>
+        </div>
+
         <div style="font-size:1.15em; font-weight:bold;">
           {{! currentState.track.name }}
         </div>
@@ -39,7 +55,7 @@
         </div>
 
         <!-- Playback Progress Slider -->
-        <div style="display:flex; align-items:center; gap:10px; margin-top:14px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-top:14px; width:100%;">
           <small>{{! printTime(currentState.position) }}</small>
           <input type="range" class="form-range" style="flex:1;" min="0" max="{{! currentState.track.length || 100 }}" ng-model="currentState.position" ng-change="seekTrack()" ng-mousedown="onSliderDown()" ng-mouseup="onSliderUp()" ng-disabled="!ready || currentState.length === 0 || !currentState.track.length">
           <small>{{! printDuration(currentState.track) }}</small>
@@ -63,86 +79,87 @@
         </div>
 
         <!-- Volume Control -->
-        <div style="display:flex; align-items:center; gap:10px; margin-top:14px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-top:14px; width:100%;">
           <span class="fas fa-volume-low"></span>
           <input type="range" class="form-range" style="flex:1;" min="0" max="100" ng-model="currentState.volume" ng-change="setVolume()" ng-disabled="!ready">
           <span class="fas fa-volume-high"></span>
           <small>{{! currentState.volume }}%</small>
         </div>
       </div>
+    </div>
 
-      <!-- ===== Queue toolbar ===== -->
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px;">
-        <button type="button" class="btn btn-info" ng-model="button" ng-click="toggleQueue()" ng-disabled="!ready" ng-class="{'active': showQueue}">
-          <span class="fas fa-list-ol"></span> Queue
-        </button>
-        <small>
-          <span class="fas fa-music" ng-if="currentState.length > 0"></span>
-          <span class="fas fa-exclamation-triangle" ng-if="currentState.length === 0"></span>
-          {{! currentState.length }} track{{! currentState.length != 1 ? 's' : '' }}
-        </small>
+    <!-- ===== Toast message (always visible, above drawers) ===== -->
+    <div class="alert toast-message" role="alert" ng-show="message.length" ng-class="{'alert-success' : (message[0] == 'success'), 'alert-danger' : (message[0] == 'error')}">
+      {{! message[1] }}
+    </div>
+
+    <!-- ===== Drawer backdrop ===== -->
+    <div class="drawer-backdrop" ng-show="showQueue || showSearch" ng-click="closeDrawers()"></div>
+
+    <!-- ===== Queue drawer (left) ===== -->
+    <div class="drawer drawer-left" ng-class="{'open': showQueue}">
+      <div class="drawer-header">
+        <span><span class="fas fa-list-ol"></span> Up next <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
+        <span style="white-space:nowrap;">
+          <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
+            <span class="fas fa-rotate-right"></span>
+          </button>
+          <button type="button" class="btn btn-xs btn-danger" ng-click="clearQueue()" ng-disabled="queue.length === 0" title="Clear the whole queue">
+            <span class="fas fa-trash"></span> Clear
+          </button>
+          <button type="button" class="btn btn-xs" ng-click="closeDrawers()" title="Close">
+            <span class="fas fa-xmark"></span>
+          </button>
+        </span>
       </div>
-
-      <!-- Queue view -->
-      <div class="card" ng-show="showQueue" style="margin-top:10px;">
-        <div class="card-header" style="display:flex; align-items:center; justify-content:space-between;">
-          <span>Up next <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
+      <ul class="list-group list-group-flush" dnd-sortable="queue" dnd-on-sort="onQueueSorted($from, $to)">
+        <li class="list-group-item" ng-repeat="item in queue" data-sortable-item style="display:flex; align-items:center; gap:8px;">
+          <span class="drag-handle" title="Drag to reorder">
+            <span class="fas fa-grip-vertical"></span>
+          </span>
+          <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
+          <span style="flex:1;">
+            {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
+            <small>
+              <span ng-if="item.track.artists">by</span>
+              <span ng-repeat="artist in item.track.artists">
+                <span ng-if="!$first"> & </span>
+                {{! artist.name }}
+              </span>
+            </small>
+          </span>
           <span style="white-space:nowrap;">
-            <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
-              <span class="fas fa-rotate-right"></span>
-            </button>
-            <button type="button" class="btn btn-xs btn-danger" ng-click="clearQueue()" ng-disabled="queue.length === 0" title="Clear the whole queue">
-              <span class="fas fa-trash"></span> Clear
+            <button type="button" class="btn btn-xs btn-danger" ng-click="removeFromQueue(item)" title="Remove from queue">
+              <span class="fas fa-xmark"></span>
             </button>
           </span>
-        </div>
-        <ul class="list-group list-group-flush" dnd-sortable="queue" dnd-on-sort="onQueueSorted($from, $to)">
-          <li class="list-group-item" ng-repeat="item in queue" data-sortable-item style="display:flex; align-items:center; gap:8px;">
-            <span class="drag-handle" title="Drag to reorder">
-              <span class="fas fa-grip-vertical"></span>
-            </span>
-            <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
-            <span style="flex:1;">
-              {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
-              <small>
-                <span ng-if="item.track.artists">by</span>
-                <span ng-repeat="artist in item.track.artists">
-                  <span ng-if="!$first"> & </span>
-                  {{! artist.name }}
-                </span>
-              </small>
-            </span>
-            <span style="white-space:nowrap;">
-              <button type="button" class="btn btn-xs btn-danger" ng-click="removeFromQueue(item)" title="Remove from queue">
-                <span class="fas fa-xmark"></span>
-              </button>
-            </span>
-          </li>
-          <li class="list-group-item" ng-if="queue.length === 0">
-            <small>The queue is empty. Add some songs!</small>
-          </li>
-        </ul>
+        </li>
+        <li class="list-group-item" ng-if="queue.length === 0">
+          <small>The queue is empty. Add some songs!</small>
+        </li>
+      </ul>
+    </div>
+
+    <!-- ===== Search drawer (right) ===== -->
+    <div class="drawer drawer-right" ng-class="{'open': showSearch}">
+      <div class="drawer-header">
+        <span><span class="fas fa-magnifying-glass"></span> Add Music</span>
+        <button type="button" class="btn btn-xs" ng-click="closeDrawers()" title="Close">
+          <span class="fas fa-xmark"></span>
+        </button>
       </div>
 
-      <!-- ===== Add music ===== -->
-      <div style="margin-top:16px;">
-        <form ng-submit="search()">
-          <input type="text" role="search" class="form-control" placeholder="Search for songs to add..." ng-model="searchField" ng-disabled="!ready">
-        </form>
-        <div class="input-group" style="margin-top:10px;">
-          <input type="text" class="form-control" placeholder="Paste YouTube/Spotify playlist or album URL..." ng-model="playlistUrl" ng-disabled="!ready">
-          <button class="btn btn-primary" type="button" ng-click="addPlaylist()" ng-disabled="!ready || !playlistUrl">
-            <span class="fas fa-plus"></span> Add Playlist
-          </button>
-        </div>
+      <form ng-submit="search()">
+        <input type="text" role="search" class="form-control" placeholder="Search for songs to add..." ng-model="searchField" ng-disabled="!ready">
+      </form>
+      <div class="input-group" style="margin-top:10px;">
+        <input type="text" class="form-control" placeholder="Paste YouTube/Spotify playlist or album URL..." ng-model="playlistUrl" ng-disabled="!ready">
+        <button class="btn btn-primary" type="button" ng-click="addPlaylist()" ng-disabled="!ready || !playlistUrl">
+          <span class="fas fa-plus"></span> Add
+        </button>
       </div>
 
-      <div class="alert" role="alert" ng-show="message.length" ng-class="{'alert-success' : (message[0] == 'success'), 'alert-danger' : (message[0] == 'error')}">
-        {{! message[1] }}
-      </div>
-
-      <!-- ===== Search results ===== -->
-      <ul class="list-group" style="margin-top:20px">
+      <ul class="list-group" style="margin-top:16px">
         <li class="list-group-item" ng-repeat="track in tracks">
           <button type="button" class="btn btn-xs btn-success add-button" ng-model="button" ng-click="addTrack(track)" ng-disabled="track.disabled">
             <span class="fas fa-play" ng-if="!track.disabled"></span>
@@ -163,10 +180,10 @@
           </small>
         </li>
       </ul>
-      <div ng-show="loading" class="container-fluid">
+      <div ng-show="loading">
         <p><span class="fas fa-hourglass"></span> Loading...</p>
       </div>
-      <div ng-show="searching" class="container-fluid">
+      <div ng-show="searching">
         <p><span style="text-transform: uppercase;">Searching:
               <span class="fas fa-magnifying-glass"></span>
            </span>

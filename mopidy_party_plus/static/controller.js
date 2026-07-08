@@ -5,7 +5,7 @@ console.log("[PARTY_PLUS] Frontend version: 1.5.0-PARTY_PLUS_v4");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
-  .controller('MainController', function ($scope, $http) {
+  .controller('MainController', function ($scope, $http, $timeout) {
 
     // Scope variables
     $scope.message = [];
@@ -34,10 +34,24 @@ angular.module('partyApp', [])
     $scope.isSliderDragging = false;
     $scope.suppressSeek = false;  // true while we set the position programmatically, so the slider's ng-change doesn't issue a bogus seek
     $scope.queue = [];            // upcoming/current tracks in the tracklist
-    $scope.showQueue = false;     // toggle for the queue panel
+    $scope.showQueue = false;     // queue drawer open/closed
+    $scope.showSearch = false;    // search drawer open/closed
     $scope.isSortingQueue = false; // true while dragging a queue item (pauses queue refresh so it isn't clobbered mid-drag)
+    $scope.albumArt = null;       // image URL for the currently-playing track
     $scope.history = [];              // stack of previously-played tracks, most recent last
     $scope.suppressHistoryUri = null; // URI whose next "ended" event should NOT be recorded (set during a back-jump)
+
+    // Auto-dismiss status messages (shown as a toast) a few seconds after they appear.
+    var messageTimer = null;
+    $scope.$watch('message', function (msg) {
+      if (messageTimer) {
+        $timeout.cancel(messageTimer);
+        messageTimer = null;
+      }
+      if (msg && msg.length) {
+        messageTimer = $timeout(function () { $scope.message = []; }, 4000);
+      }
+    });
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/party_plus/config?key=max_results').then(function success (response) {
@@ -74,8 +88,10 @@ angular.module('partyApp', [])
       mopidy.playback
         .getCurrentTrack()
         .then(function (track) {
-          if (track)
+          if (track) {
             $scope.currentState.track = track;
+            $scope.fetchAlbumArt(track);
+          }
           return mopidy.playback.getState();
         })
         .then(function (state) {
@@ -132,6 +148,7 @@ angular.module('partyApp', [])
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
       $scope.$apply();
+      $scope.fetchAlbumArt(event.tl_track.track);
       $scope.refreshQueue();
     });
 
@@ -390,8 +407,48 @@ angular.module('partyApp', [])
     $scope.toggleQueue = function () {
       $scope.showQueue = !$scope.showQueue;
       if ($scope.showQueue) {
+        $scope.showSearch = false; // only one drawer open at a time
         $scope.refreshQueue();
       }
+    };
+
+    $scope.toggleSearch = function () {
+      $scope.showSearch = !$scope.showSearch;
+      if ($scope.showSearch) {
+        $scope.showQueue = false; // only one drawer open at a time
+      }
+    };
+
+    $scope.closeDrawers = function () {
+      $scope.showQueue = false;
+      $scope.showSearch = false;
+    };
+
+    // Look up album art for a track via Mopidy's library.getImages and pick the
+    // largest available image. Falls back to no art (the UI shows a placeholder).
+    $scope.fetchAlbumArt = function (track) {
+      $scope.albumArt = null;
+      if (!track || !track.uri) {
+        return;
+      }
+      var uri = track.uri;
+      mopidy.library.getImages({ uris: [uri] }).then(function (result) {
+        var images = result && result[uri];
+        var best = null;
+        if (images && images.length) {
+          best = images[0];
+          for (var i = 1; i < images.length; i++) {
+            var a = (images[i].width || 0) * (images[i].height || 0);
+            var b = (best.width || 0) * (best.height || 0);
+            if (a > b) {
+              best = images[i];
+            }
+          }
+        }
+        $scope.$apply(function () {
+          $scope.albumArt = best ? best.uri : null;
+        });
+      });
     };
 
     // Remove a single upcoming track from the queue.
