@@ -97,7 +97,7 @@ _DEFAULTS = {
     "max_song_duration": 0,
     "hide_pause": False,
     "hide_skip": False,
-    "style": "dark.css",
+    "style": "netjammer.css",
     "source_prio": "local\nspotify\ntidal\nyoutube",
     "source_blacklist": "cd",
 }
