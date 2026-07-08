@@ -95,6 +95,57 @@ angular.module('partyApp', [])
       }
     }
 
+    // Playback watchdog: recover from a "stuck" queue. If a track fails to play
+    // (e.g. a YouTube video that 403s), Mopidy stops and does not auto-advance,
+    // leaving songs queued but nothing playing. This app only auto-starts on an
+    // add, so it can stay stuck forever. We detect stopped-with-tracks and: first
+    // nudge play(); if it's still stuck next time, the head track is unplayable,
+    // so skip it and move on.
+    var stuckCount = 0;
+    function playbackWatchdog() {
+      if (!$scope.ready || $scope.isSortingQueue) {
+        return;
+      }
+      mopidy.playback.getState().then(function (state) {
+        if (state !== 'stopped') {
+          stuckCount = 0;
+          return;
+        }
+        mopidy.tracklist.getLength().then(function (len) {
+          if (!len || len <= 0) {
+            stuckCount = 0; // stopped with an empty queue is normal
+            return;
+          }
+          stuckCount++;
+          if (stuckCount === 1) {
+            // Gentle nudge — handles a transient stop with a playable head track.
+            mopidy.playback.play();
+          } else {
+            // Still stopped after a nudge: the current track is unplayable. Drop it
+            // and continue, so one bad song can't freeze the whole party.
+            recoverStuckPlayback();
+          }
+        });
+      });
+    }
+    $interval(playbackWatchdog, 4000);
+
+    function recoverStuckPlayback() {
+      mopidy.playback.getCurrentTlTrack().then(function (tl) {
+        if (tl && tl.tlid !== undefined && tl.tlid !== null) {
+          mopidy.tracklist.remove([{ tlid: [tl.tlid] }]).then(function () {
+            mopidy.playback.play();
+            $scope.$apply(function () {
+              $scope.message = ['error', 'Skipped a track that wouldn’t play, keeping the music going.'];
+            });
+            $scope.refreshQueue();
+          });
+        } else {
+          mopidy.playback.play();
+        }
+      });
+    }
+
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/netjammer/config?key=max_results').then(function success (response) {
       if (response.status == 200) {
@@ -184,6 +235,18 @@ angular.module('partyApp', [])
     mopidy.on('event:playbackStateChanged', function (event) {
       $scope.currentState.paused = (event.new_state === 'paused');
       $scope.$apply();
+    });
+
+    // Keep the volume in sync across everyone's screens. Mopidy broadcasts this
+    // whenever anyone (any connected client) changes the volume, so we just apply
+    // it. Setting the value programmatically doesn't re-trigger setVolume (the
+    // value is always within range, so the slider fires no ng-change), so there's
+    // no feedback loop.
+    mopidy.on('event:volumeChanged', function (event) {
+      if (event && event.volume !== undefined && event.volume !== null) {
+        $scope.currentState.volume = event.volume;
+        $scope.$apply();
+      }
     });
 
     mopidy.on('event:trackPlaybackStarted', function (event) {
