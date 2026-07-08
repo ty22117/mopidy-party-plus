@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — drawers, album art, playback-error toasts
-console.log("[NETJammer] Frontend version: 1.6.0-NETJAMMER (shared history)");
+console.log("[NETJammer] Frontend version: 1.6.1-NETJAMMER (stuck-head recovery)");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
@@ -96,11 +96,14 @@ angular.module('partyApp', [])
     }
 
     // Playback watchdog: recover from a "stuck" queue. If a track fails to play
-    // (e.g. a YouTube video that 403s), Mopidy stops and does not auto-advance,
-    // leaving songs queued but nothing playing. This app only auto-starts on an
-    // add, so it can stay stuck forever. We detect stopped-with-tracks and: first
-    // nudge play(); if it's still stuck next time, the head track is unplayable,
-    // so skip it and move on.
+    // (e.g. a YouTube video that 403s), Mopidy briefly starts it (cover art shows)
+    // then drops to "stopped" and does NOT auto-advance, leaving songs queued but
+    // nothing playing. This app only auto-starts on an add, so it can stay stuck.
+    //
+    // We always act on the HEAD of the tracklist (index 0): under consume mode the
+    // head is the next-to-play, so it's the culprit when we're stuck. We also play
+    // an explicit tlid rather than a bare play(), which can target a stale/removed
+    // "current" track and silently do nothing (that was the never-recovers bug).
     var stuckCount = 0;
     function playbackWatchdog() {
       if (!$scope.ready || $scope.isSortingQueue) {
@@ -111,40 +114,35 @@ angular.module('partyApp', [])
           stuckCount = 0;
           return;
         }
-        mopidy.tracklist.getLength().then(function (len) {
-          if (!len || len <= 0) {
+        mopidy.tracklist.getTlTracks().then(function (tls) {
+          if (!tls || !tls.length) {
             stuckCount = 0; // stopped with an empty queue is normal
             return;
           }
           stuckCount++;
           if (stuckCount === 1) {
-            // Gentle nudge — handles a transient stop with a playable head track.
-            mopidy.playback.play();
+            // Gentle nudge: explicitly (re)start the head track.
+            mopidy.playback.play({ tlid: tls[0].tlid });
           } else {
-            // Still stopped after a nudge: the current track is unplayable. Drop it
-            // and continue, so one bad song can't freeze the whole party.
-            recoverStuckPlayback();
+            // Still stopped after a nudge: the head track is unplayable. Drop it
+            // and start the next one, so one bad song can't freeze the party.
+            mopidy.tracklist.remove([{ tlid: [tls[0].tlid] }]).then(function () {
+              mopidy.tracklist.getTlTracks().then(function (rest) {
+                if (rest && rest.length) {
+                  mopidy.playback.play({ tlid: rest[0].tlid });
+                }
+              });
+              $scope.$apply(function () {
+                $scope.message = ['error', 'Skipped a track that wouldn’t play, keeping the music going.'];
+              });
+              $scope.refreshQueue();
+            });
+            stuckCount = 0; // give the new head its own nudge next cycle before removing
           }
         });
       });
     }
     $interval(playbackWatchdog, 4000);
-
-    function recoverStuckPlayback() {
-      mopidy.playback.getCurrentTlTrack().then(function (tl) {
-        if (tl && tl.tlid !== undefined && tl.tlid !== null) {
-          mopidy.tracklist.remove([{ tlid: [tl.tlid] }]).then(function () {
-            mopidy.playback.play();
-            $scope.$apply(function () {
-              $scope.message = ['error', 'Skipped a track that wouldn’t play, keeping the music going.'];
-            });
-            $scope.refreshQueue();
-          });
-        } else {
-          mopidy.playback.play();
-        }
-      });
-    }
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/netjammer/config?key=max_results').then(function success (response) {

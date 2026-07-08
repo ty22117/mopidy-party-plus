@@ -231,7 +231,12 @@ class AddRequestHandler(tornado.web.RequestHandler):
 
         self.core.tracklist.set_consume(True)
         if self.core.playback.get_state().get() == "stopped":
-            self.core.playback.play()
+            # Start the head of the tracklist explicitly. A bare play() can target a
+            # stale "current" track (left over after the queue drained or a failed
+            # play) and silently do nothing, leaving the song queued but not playing.
+            tl_tracks = self.core.tracklist.get_tl_tracks().get()
+            if tl_tracks:
+                self.core.playback.play(tlid=tl_tracks[0].tlid)
 
 
 class PlaylistHandler(tornado.web.RequestHandler):
@@ -319,9 +324,12 @@ class PlaylistHandler(tornado.web.RequestHandler):
                 except Exception as e:
                     print(f"[NETJammer] Error adding track {track_uri}: {repr(e)}")
 
-            # CRITICAL FIX: Trigger playback ONCE after all tracks have been processed
+            # Trigger playback ONCE after all tracks have been processed. Play the
+            # head track explicitly (a bare play() can no-op on a stale current).
             if added_count > 0 and self.core.playback.get_state().get() == "stopped":
-                self.core.playback.play()
+                tl_tracks = self.core.tracklist.get_tl_tracks().get()
+                if tl_tracks:
+                    self.core.playback.play(tlid=tl_tracks[0].tlid)
 
             self.write(
                 json.dumps(
