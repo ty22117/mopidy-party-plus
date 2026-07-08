@@ -1,11 +1,11 @@
 'use strict';
 
-// VERSION MARKER v4: full back-history stack (fixes two-song ping-pong)
-console.log("[PARTY_PLUS] Frontend version: 1.5.0-PARTY_PLUS_v4");
+// VERSION MARKER: NETJammer — drawers, album art, playback-error toasts
+console.log("[NETJammer] Frontend version: 1.5.0-NETJAMMER");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
-  .controller('MainController', function ($scope, $http, $timeout) {
+  .controller('MainController', function ($scope, $http, $timeout, $interval) {
 
     // Scope variables
     $scope.message = [];
@@ -49,9 +49,51 @@ angular.module('partyApp', [])
         messageTimer = null;
       }
       if (msg && msg.length) {
-        messageTimer = $timeout(function () { $scope.message = []; }, 4000);
+        messageTimer = $timeout(function () { $scope.message = []; }, 6000);
       }
     });
+
+    // Poll the backend for playback/download errors (e.g. a YouTube video that
+    // can't be downloaded) and surface them as a toast. The backend has no
+    // websocket event for this, so it captures the relevant log lines instead.
+    var lastErrorId = null; // null until the first poll establishes a baseline
+    $scope.pollErrors = function () {
+      var since = (lastErrorId === null) ? '' : lastErrorId;
+      $http.get('/party_plus/errors', { params: { since: since } }).then(function (resp) {
+        var d = resp.data || {};
+        if (lastErrorId === null) {
+          // First poll: remember where we are, don't replay pre-existing errors.
+          lastErrorId = d.latest || 0;
+          return;
+        }
+        lastErrorId = d.latest || lastErrorId;
+        var errs = d.errors || [];
+        if (errs.length) {
+          showPlaybackError(errs[errs.length - 1]); // most recent
+        }
+      }, function () { /* ignore transient poll failures */ });
+    };
+    $interval($scope.pollErrors, 3000);
+
+    function showPlaybackError(e) {
+      var reason = e.reason || 'A track could not be played.';
+      if (e.uri && $scope.ready && mopidy.library) {
+        // Resolve the track name so the toast is friendly.
+        mopidy.library.lookup({ uris: [e.uri] }).then(function (res) {
+          var arr = res && res[e.uri];
+          var name = (arr && arr.length && arr[0]) ? arr[0].name : null;
+          $scope.$apply(function () {
+            $scope.message = ['error', name
+              ? ('Couldn’t play “' + name + '” — ' + reason)
+              : reason];
+          });
+        }, function () {
+          $scope.$apply(function () { $scope.message = ['error', reason]; });
+        });
+      } else {
+        $scope.message = ['error', reason];
+      }
+    }
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/party_plus/config?key=max_results').then(function success (response) {

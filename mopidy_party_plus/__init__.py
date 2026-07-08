@@ -1,13 +1,90 @@
 import os
 import json
 import re
+import logging
+import threading
+from collections import deque
 
 import tornado.web
 
 from mopidy import config, ext
 
-__version__ = "1.3.0-PARTY_PLUS_FIXED_v2"
-# VERSION MARKER: If you see "1.3.0-PARTY_PLUS_FIXED_v2" in logs, the latest code is loaded
+__version__ = "1.5.0-NETJAMMER"
+
+# Mopidy has no websocket event for "track could not be played", so we capture the
+# relevant log lines and expose them to the web UI via the /errors endpoint.
+_error_lock = threading.Lock()
+_handler_installed = False
+_VIDEO_ID_RE = re.compile(r"videoId:\s*([A-Za-z0-9_-]+)")
+_HTTP_ERR_RE = re.compile(r"(HTTP Error \d+[^()\n]*)")
+_GENERIC_ERR_RE = re.compile(r"ERROR:\s*(.+?)(?:\s*\(videoId.*)?$")
+
+
+class PlaybackErrorLogHandler(logging.Handler):
+    """Watches Mopidy's logs for playback/download failures and records them so the
+    web UI can display them. Keyed off message text because there is no event for it."""
+
+    def __init__(self, data):
+        super().__init__()
+        self.data = data
+        self.recent_reasons = {}  # videoId (or "_last") -> human-readable reason
+
+    def _clean_reason(self, msg):
+        m = _HTTP_ERR_RE.search(msg)
+        if m:
+            return m.group(1).strip()
+        m = _GENERIC_ERR_RE.search(msg)
+        if m:
+            return m.group(1).strip()
+        return None
+
+    def _push(self, uri, reason):
+        with _error_lock:
+            self.data["error_seq"] = self.data.get("error_seq", 0) + 1
+            self.data["errors"].append(
+                {
+                    "id": self.data["error_seq"],
+                    "uri": uri,
+                    "reason": reason or "This track couldn't be played, so it was skipped.",
+                }
+            )
+
+    def emit(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return
+        try:
+            low = msg.lower()
+            # Remember a download/extraction reason, keyed by videoId when present.
+            if (
+                "unable to download" in low
+                or "http error" in low
+                or "audio_url error" in low
+                or record.name.startswith("mopidy_youtube")
+            ):
+                reason = self._clean_reason(msg)
+                if reason:
+                    m = _VIDEO_ID_RE.search(msg)
+                    self.recent_reasons[m.group(1) if m else "_last"] = reason
+                    if len(self.recent_reasons) > 50:
+                        self.recent_reasons.pop(next(iter(self.recent_reasons)))
+            # The moment the listener actually notices: the track is skipped.
+            if "not playable" in low:
+                uri = None
+                if "not playable:" in low:
+                    tail = msg.split("not playable:", 1)[1].strip()
+                    uri = tail.split()[0].rstrip(",") if tail else None
+                reason = None
+                if uri:
+                    vid = uri.rsplit(":", 1)[-1]
+                    reason = self.recent_reasons.get(vid) or self.recent_reasons.get(
+                        "_last"
+                    )
+                self._push(uri, reason)
+        except Exception:
+            # A logging handler must never raise.
+            pass
 
 
 class VoteRequestHandler(tornado.web.RequestHandler):
@@ -315,6 +392,33 @@ class ConfigHandler(tornado.web.RequestHandler):
             return
 
 
+class ErrorsHandler(tornado.web.RequestHandler):
+    """Return playback/download errors newer than the given ?since=<id>.
+
+    The web UI polls this and shows any new errors as a toast. Pass no 'since'
+    (or empty) to just learn the latest id without receiving old errors."""
+
+    def initialize(self, data):
+        self.data = data
+
+    def get(self):
+        since = self.get_argument("since", default="")
+        errors = list(self.data["errors"])
+        latest = errors[-1]["id"] if errors else 0
+
+        if since == "":
+            out = []
+        else:
+            try:
+                since_id = int(since)
+            except ValueError:
+                since_id = 0
+            out = [e for e in errors if e["id"] > since_id]
+
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"latest": latest, "errors": out}))
+
+
 def party_factory(config, core):
     from tornado.web import RedirectHandler
 
@@ -323,7 +427,17 @@ def party_factory(config, core):
         "votes": [],
         "queue": [None] * config["party_plus"]["max_tracks"],
         "last": None,
+        "errors": deque(maxlen=50),
+        "error_seq": 0,
     }
+
+    # Install the log watcher once, wired to this app's shared error buffer.
+    global _handler_installed
+    if not _handler_installed:
+        handler = PlaybackErrorLogHandler(data)
+        handler.setLevel(logging.WARNING)
+        logging.getLogger().addHandler(handler)
+        _handler_installed = True
 
     return [
         (
@@ -336,6 +450,7 @@ def party_factory(config, core):
         ("/add", AddRequestHandler, {"core": core, "data": data, "config": config}),
         ("/playlist", PlaylistHandler, {"core": core, "data": data, "config": config}),
         ("/config", ConfigHandler, {"config": config}),
+        ("/errors", ErrorsHandler, {"data": data}),
     ]
 
 
