@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — drawers, album art, playback-error toasts
-console.log("[NETJammer] Frontend version: 1.5.0-NETJAMMER");
+console.log("[NETJammer] Frontend version: 1.6.0-NETJAMMER (shared history)");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
@@ -20,6 +20,7 @@ angular.module('partyApp', [])
     $scope.playlistUrl = '';
     $scope.currentState = {
       paused: false,
+      state: 'stopped',
       length: 0,
       position: 0,
       volume: 100,
@@ -38,8 +39,7 @@ angular.module('partyApp', [])
     $scope.showSearch = false;    // search drawer open/closed
     $scope.isSortingQueue = false; // true while dragging a queue item (pauses queue refresh so it isn't clobbered mid-drag)
     $scope.albumArt = null;       // image URL for the currently-playing track
-    $scope.history = [];              // stack of previously-played tracks, most recent last
-    $scope.suppressHistoryUri = null; // URI whose next "ended" event should NOT be recorded (set during a back-jump)
+    $scope.historyCount = 0;      // how many previously-played tracks the server has (for the back button)
 
     // Auto-dismiss status messages (shown as a toast) a few seconds after they appear.
     var messageTimer = null;
@@ -188,6 +188,7 @@ angular.module('partyApp', [])
           return mopidy.playback.getState();
         })
         .then(function (state) {
+          $scope.currentState.state = state;
           $scope.currentState.paused = (state === 'paused');
           return mopidy.tracklist.getLength();
         })
@@ -220,6 +221,7 @@ angular.module('partyApp', [])
           }, 0);
           $scope.search();
           $scope.refreshQueue();
+          $scope.refreshHistory();
         });
 
       /* Initialize available sources */
@@ -233,6 +235,7 @@ angular.module('partyApp', [])
     });
 
     mopidy.on('event:playbackStateChanged', function (event) {
+      $scope.currentState.state = event.new_state;
       $scope.currentState.paused = (event.new_state === 'paused');
       $scope.$apply();
     });
@@ -255,32 +258,32 @@ angular.module('partyApp', [])
       $scope.$apply();
       $scope.fetchAlbumArt(event.tl_track.track);
       $scope.refreshQueue();
+      $scope.refreshHistory();
     });
 
-    mopidy.on('event:trackPlaybackEnded', function (event) {
-      // Record every track that finishes (or is skipped) so we can step back through
-      // the full play history. Because consume mode removes played tracks, this is
-      // the only place the song is captured -- crucially including the very last
-      // song, when the queue empties and no new track starts after it.
-      var ended = event.tl_track && event.tl_track.track ? event.tl_track.track : null;
-      if (!ended || !ended.uri) {
-        return;
-      }
-      if ($scope.suppressHistoryUri === ended.uri) {
-        // This track ended only because "back" jumped away from it; it has been
-        // re-queued ahead of us, so don't record it now (that caused the ping-pong).
-        $scope.suppressHistoryUri = null;
-        return;
-      }
-      $scope.history.push(ended);
+    mopidy.on('event:trackPlaybackEnded', function () {
+      // History is recorded server-side now (shared + survives refresh); just
+      // refresh our count so the back button state is current.
+      $scope.refreshHistory();
     });
 
     mopidy.on('event:tracklistChanged', function () {
       mopidy.tracklist.getLength().done(function (length) {
         $scope.currentState.length = length;
+        if (length === 0) {
+          // Nothing queued or playing -- clear the "now playing" display so we
+          // don't show stale album art with dead controls.
+          $scope.currentState.track = {
+            length: 0,
+            name: 'Nothing playing, add some songs to get the party going!'
+          };
+          $scope.currentState.position = 0;
+          $scope.albumArt = null;
+        }
         $scope.$apply();
       });
       $scope.refreshQueue();
+      $scope.refreshHistory();
     });
 
     $scope.printDuration = function (track) {
@@ -618,53 +621,38 @@ angular.module('partyApp', [])
       });
     };
 
-    // "Last song": step back through the history of played tracks. Because consume
-    // mode removes played tracks from the tracklist, we pop the most recent one off
-    // the history stack, re-insert it at the current position, and play it.
-    $scope.RESTART_THRESHOLD_MS = 3000; // within this many ms, "back" goes to the previous song
+    // Fetch how many previously-played tracks the server is holding, so the back
+    // button knows whether there's anything to go back to. Server-side history is
+    // shared and survives page refreshes / new clients joining.
+    $scope.refreshHistory = function () {
+      $http.get('/netjammer/history').then(function (resp) {
+        $scope.historyCount = (resp.data && resp.data.count) || 0;
+      }, function () { /* ignore */ });
+    };
+
+    // "Last song": if we're past the first few seconds of the current song, restart
+    // it; otherwise ask the server to replay the previous track (shared history).
+    $scope.RESTART_THRESHOLD_MS = 3000;
     $scope.playLastSong = function () {
-      // If a song is actually playing and we're past the first few seconds, restart it.
       if ($scope.currentState.length > 0 && $scope.currentState.position > $scope.RESTART_THRESHOLD_MS) {
         $scope.currentState.position = 0;
         $scope.seekTrack();
         $scope.message = ['success', 'Restarted current song'];
         return;
       }
-      // Otherwise step back to the previous song from history.
-      if (!$scope.history.length) {
-        $scope.message = ['error', 'No previous song to replay yet'];
-        return;
-      }
-      var prevTrack = $scope.history.pop();
-      var uri = prevTrack.uri;
-      var name = prevTrack.name;
-      // If a track is currently playing, it gets re-queued ahead of the replayed
-      // song -- suppress its "ended" event so it isn't recorded as history again
-      // (that was the ping-pong bug). When nothing is playing, nothing to suppress.
-      var outgoing = ($scope.currentState.length > 0) ? $scope.currentState.track : null;
-      $scope.suppressHistoryUri = (outgoing && outgoing.uri) ? outgoing.uri : null;
-      mopidy.tracklist.index().then(function (currentIndex) {
-        var at = (currentIndex === null || currentIndex === undefined) ? 0 : currentIndex;
-        return mopidy.tracklist.add({ uris: [uri], at_position: at });
-      }).then(function (tlTracks) {
-        if (tlTracks && tlTracks.length) {
-          mopidy.playback.play({ tlid: tlTracks[0].tlid }).then(function () {
-            $scope.$apply(function () {
-              $scope.message = ['success', 'Replaying: ' + name];
-            });
-          });
-        } else {
-          // Add failed: undo the bookkeeping so we don't get stuck.
-          $scope.suppressHistoryUri = null;
-          $scope.history.push(prevTrack);
+      $http.post('/netjammer/previous', '').then(
+        function (resp) {
+          if (resp.data && resp.data.name) {
+            $scope.message = ['success', 'Replaying: ' + resp.data.name];
+          }
+          $scope.refreshHistory();
+        },
+        function (resp) {
+          var msg = (resp.data && resp.data.error) ? resp.data.error : 'No previous song to play yet';
+          $scope.message = ['error', msg];
+          $scope.refreshHistory();
         }
-      }, function (err) {
-        $scope.suppressHistoryUri = null;
-        $scope.history.push(prevTrack);
-        $scope.$apply(function () {
-          $scope.message = ['error', 'Unable to replay last song: ' + err];
-        });
-      });
+      );
     };
 
     $scope.getTrackSource = function (track) {
@@ -690,8 +678,16 @@ angular.module('partyApp', [])
     };
 
     $scope.togglePause = function () {
-      var _fn = $scope.currentState.paused ? mopidy.playback.resume : mopidy.playback.pause;
-      _fn().done();
+      // Handle all three states: playing -> pause, paused -> resume, stopped -> play.
+      // (Previously "stopped" fell through to pause() and did nothing, so a queued
+      // song that had stopped couldn't be started from the button.)
+      if ($scope.currentState.state === 'playing') {
+        mopidy.playback.pause().done();
+      } else if ($scope.currentState.state === 'paused') {
+        mopidy.playback.resume().done();
+      } else {
+        mopidy.playback.play().done();
+      }
     };
 
     $scope.seekTrack = function () {

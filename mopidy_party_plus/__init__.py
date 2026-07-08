@@ -5,11 +5,42 @@ import logging
 import threading
 from collections import deque
 
+import pykka
 import tornado.web
 
-from mopidy import config, ext
+from mopidy import config, core, ext
 
-__version__ = "1.5.0-NETJAMMER"
+__version__ = "1.6.0-NETJAMMER"
+
+# Shared, server-side play history so the "back" button works across page
+# refreshes and for everyone who joins (it lives as long as Mopidy runs).
+_history_lock = threading.Lock()
+_history = []               # [{"uri":..., "name":...}] oldest-first, most recent last
+_history_suppress_uri = None  # a track whose next "ended" should NOT be recorded (set during a back-jump)
+
+
+class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
+    """A Mopidy frontend that records every track that finishes/skips into the
+    shared history, so the web UI's back button has a real, shared source."""
+
+    def __init__(self, config, core):
+        super().__init__()
+        self.core = core
+
+    def track_playback_ended(self, tl_track, time_position):
+        global _history_suppress_uri
+        track = getattr(tl_track, "track", None)
+        if not track or not track.uri:
+            return
+        with _history_lock:
+            if _history_suppress_uri == track.uri:
+                # Ended only because "back" jumped away from it; it's re-queued
+                # ahead of us, so don't record it now (prevents ping-pong).
+                _history_suppress_uri = None
+                return
+            _history.append({"uri": track.uri, "name": track.name or track.uri})
+            while len(_history) > 200:
+                _history.pop(0)
 
 # Mopidy has no websocket event for "track could not be played", so we capture the
 # relevant log lines and expose them to the web UI via the /errors endpoint.
@@ -461,6 +492,65 @@ class ErrorsHandler(tornado.web.RequestHandler):
         self.write(json.dumps({"latest": latest, "errors": out}))
 
 
+class HistoryHandler(tornado.web.RequestHandler):
+    """Report how many previously-played tracks are available to go back to."""
+
+    def get(self):
+        with _history_lock:
+            count = len(_history)
+            last = _history[-1]["name"] if _history else None
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"count": count, "last": last}))
+
+
+class PreviousHandler(tornado.web.RequestHandler):
+    """Replay the most-recently-played track (the "back" button). Pops the shared
+    history, re-inserts that track at the current position, and plays it."""
+
+    def initialize(self, core):
+        self.core = core
+
+    def post(self):
+        global _history_suppress_uri
+        with _history_lock:
+            if not _history:
+                self.set_status(409)
+                self.write(json.dumps({"error": "No previous song to play"}))
+                return
+            prev = _history.pop()
+
+        uri = prev["uri"]
+        # If a track is currently playing it gets re-queued ahead of the replayed
+        # song; suppress its "ended" event so it isn't recorded as history again.
+        try:
+            current = self.core.playback.get_current_tl_track().get()
+        except Exception:
+            current = None
+        with _history_lock:
+            _history_suppress_uri = (
+                current.track.uri if current and current.track else None
+            )
+
+        try:
+            idx = self.core.tracklist.index().get()
+            if idx is None:
+                idx = 0
+            self.core.tracklist.set_consume(True)
+            added = self.core.tracklist.add(uris=[uri], at_position=idx).get()
+            if added:
+                self.core.playback.play(tlid=added[0].tlid)
+                self.write(json.dumps({"success": True, "name": prev["name"]}))
+            else:
+                raise Exception("track could not be queued")
+        except Exception as e:
+            # Couldn't replay it — put it back so the history isn't lost.
+            with _history_lock:
+                _history.append(prev)
+                _history_suppress_uri = None
+            self.set_status(500)
+            self.write(json.dumps({"error": "Could not replay previous song: " + repr(e)}))
+
+
 def party_factory(config, core):
     from tornado.web import RedirectHandler
 
@@ -493,6 +583,8 @@ def party_factory(config, core):
         ("/playlist", PlaylistHandler, {"core": core, "data": data, "config": config}),
         ("/config", ConfigHandler, {"config": config}),
         ("/errors", ErrorsHandler, {"data": data}),
+        ("/history", HistoryHandler, {}),
+        ("/previous", PreviousHandler, {"core": core}),
     ]
 
 
@@ -534,3 +626,5 @@ class Extension(ext.Extension):
                 "factory": party_factory,
             },
         )
+        # Frontend actor that records shared play history for the back button.
+        registry.add("frontend", NetjammerFrontend)

@@ -59,12 +59,12 @@
 
         <!-- Transport controls: back / play-pause / skip -->
         <div style="margin-top:14px; display:flex; justify-content:center; gap:10px;">
-          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || (history.length === 0 && currentState.length === 0)" title="Previous / restart song">
+          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || (historyCount === 0 && currentState.length === 0)" title="Previous / restart song">
             <span class="fas fa-step-backward"></span>
           </button>
           {% if not hide_pause %}
-            <button type="button" class="btn" ng-model="button" ng-click="togglePause()" ng-disabled="!ready || currentState.length === 0" ng-class="{'btn-success' : currentState.paused, 'btn-danger': !currentState.paused}">
-              <span class="fas fa-pause" ng-class="{'fa-play': currentState.paused, 'fa-pause' : !currentState.paused}"></span>
+            <button type="button" class="btn" ng-model="button" ng-click="togglePause()" ng-disabled="!ready || currentState.length === 0" ng-class="{'btn-success' : currentState.state !== 'playing', 'btn-danger': currentState.state === 'playing'}">
+              <span class="fas" ng-class="{'fa-play': currentState.state !== 'playing', 'fa-pause' : currentState.state === 'playing'}"></span>
             </button>
           {% end %}
           {% if not hide_skip %}
