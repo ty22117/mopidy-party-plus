@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — drawers, album art, playback-error toasts
-console.log("[NETJammer] Frontend version: 1.6.1-NETJAMMER (stuck-head recovery)");
+console.log("[NETJammer] Frontend version: 1.7.0-NETJAMMER (dark theme toggle)");
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
@@ -23,7 +23,7 @@ angular.module('partyApp', [])
       state: 'stopped',
       length: 0,
       position: 0,
-      volume: 100,
+      volume: 30,
       track: {
         length: 0,
         name: 'Nothing playing, add some songs to get the party going!'
@@ -40,6 +40,31 @@ angular.module('partyApp', [])
     $scope.isSortingQueue = false; // true while dragging a queue item (pauses queue refresh so it isn't clobbered mid-drag)
     $scope.albumArt = null;       // image URL for the currently-playing track
     $scope.historyCount = 0;      // how many previously-played tracks the server has (for the back button)
+
+    // Light/dark theme, toggled in the UI and remembered per device. Defaults to
+    // dark. The <head> also applies this before first paint to avoid a flash.
+    function readTheme() {
+      try {
+        return (localStorage.getItem('netjammerTheme') === 'light') ? 'light' : 'dark';
+      } catch (e) {
+        return 'dark';
+      }
+    }
+    function applyTheme(theme) {
+      var el = document.documentElement;
+      if (theme === 'dark') {
+        el.classList.add('theme-dark');
+      } else {
+        el.classList.remove('theme-dark');
+      }
+    }
+    $scope.theme = readTheme();
+    applyTheme($scope.theme);
+    $scope.toggleTheme = function () {
+      $scope.theme = ($scope.theme === 'dark') ? 'light' : 'dark';
+      try { localStorage.setItem('netjammerTheme', $scope.theme); } catch (e) { /* ignore */ }
+      applyTheme($scope.theme);
+    };
 
     // Auto-dismiss status messages (shown as a toast) a few seconds after they appear.
     var messageTimer = null;

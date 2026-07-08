@@ -10,7 +10,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.6.0-NETJAMMER"
+__version__ = "1.7.0-NETJAMMER"
 
 # Shared, server-side play history so the "back" button works across page
 # refreshes and for everyone who joins (it lives as long as Mopidy runs).
@@ -25,7 +25,15 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
 
     def __init__(self, config, core):
         super().__init__()
+        self.config = config
         self.core = core
+
+    def on_start(self):
+        # Start each session at a sensible default volume instead of full blast.
+        try:
+            self.core.mixer.set_volume(int(_conf(self.config, "default_volume")))
+        except Exception:
+            pass
 
     def track_playback_ended(self, tl_track, time_position):
         global _history_suppress_uri
@@ -126,6 +134,7 @@ _DEFAULTS = {
     "max_results": 50,
     "max_queue_length": 0,
     "max_song_duration": 0,
+    "default_volume": 30,
     "hide_pause": False,
     "hide_skip": False,
     "style": "netjammer.css",
@@ -615,6 +624,7 @@ class Extension(ext.Extension):
         schema["max_results"] = config.Integer(minimum=0, optional=True)
         schema["max_queue_length"] = config.Integer(minimum=0, optional=True)
         schema["max_song_duration"] = config.Integer(minimum=0, optional=True)
+        schema["default_volume"] = config.Integer(minimum=0, maximum=100, optional=True)
         schema["source_prio"] = config.String(optional=True)
         schema["source_blacklist"] = config.String(optional=True)
         return schema
