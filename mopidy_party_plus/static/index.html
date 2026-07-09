@@ -1,5 +1,6 @@
 <!doctype html>
 <html ng-app="partyApp">
+	<link rel="icon" href="/netjammer/favicon.ico">
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -16,13 +17,22 @@
       } catch (e) { document.documentElement.classList.add('theme-dark'); }
     </script>
 
-    <link href="vendors/bootstrap.min.css" rel="stylesheet">
+    <!-- <link href="vendors/bootstrap.min.css" rel="stylesheet">
     <link href="vendors/fontawesome/css/all.min.css" rel="stylesheet">
     <link href="{{ style }}" rel="stylesheet">
 
     <script type="text/javascript" src="vendors/mopidy.min.js"></script>
     <script type="text/javascript" src="vendors/angular.min.js"></script>
-    <script type="text/javascript" src="controller.js"></script>
+    <script type="text/javascript" src="controller.js"></script> -->
+
+    <link href="/netjammer/vendors/bootstrap.min.css" rel="stylesheet">
+    <link href="/netjammer/vendors/fontawesome/css/all.min.css" rel="stylesheet">
+    <link href="/netjammer/{{ style }}" rel="stylesheet">
+
+    <script type="text/javascript" src="/netjammer/vendors/mopidy.min.js"></script>
+    <script type="text/javascript" src="/netjammer/vendors/angular.min.js"></script>
+    <script type="text/javascript" src="/netjammer/controller.js"></script>
+
   </head>
   <body ng-controller="MainController">
     <!-- ===== Top bar ===== -->
