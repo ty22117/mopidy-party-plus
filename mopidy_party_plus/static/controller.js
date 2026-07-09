@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-console.log("[NETJammer] Frontend version: 1.9.1-NETJAMMER (no end-of-queue loop)");
+console.log("[NETJammer] Frontend version: 1.9.2-NETJAMMER (no repeat-loop)");
 
 // ===== Client-side diagnostics logger =====
 // Buffers client events/errors and ships them to the backend (/netjammer/clientlog)

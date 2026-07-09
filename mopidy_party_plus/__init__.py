@@ -12,7 +12,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.9.1-NETJAMMER"
+__version__ = "1.9.2-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -74,16 +74,29 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         self.config = config
         self.core = core
 
-    def on_start(self):
-        # Consume mode OFF: keep played tracks in the tracklist so next()/previous()
-        # move a pointer through a stable, ordered list. (Consume + re-inserting for
-        # "back" was scrambling the order and creating duplicates.) The queue view
-        # only shows tracks after the current one, so played songs still stay hidden.
+    def _set_playback_modes(self, where):
+        # We want a plain, linear queue: consume off (keep played tracks for the
+        # back button) and repeat/single/random off so the queue STOPS at the end
+        # instead of looping back to the first song. Something (e.g. the YouTube
+        # autoplayer) turns repeat on, so we assert this on start and on each track.
         try:
-            self.core.tracklist.set_consume(False)
-            logger.info("startup: consume mode disabled")
+            tl = self.core.tracklist
+            if tl.get_consume().get():
+                tl.set_consume(False)
+            if tl.get_repeat().get():
+                tl.set_repeat(False)
+                logger.info("%s: repeat mode was on -> disabled", where)
+            if tl.get_single().get():
+                tl.set_single(False)
+                logger.info("%s: single mode was on -> disabled", where)
+            if tl.get_random().get():
+                tl.set_random(False)
+                logger.info("%s: random mode was on -> disabled", where)
         except Exception as e:
-            logger.warning("startup: could not set consume mode: %r", e)
+            logger.warning("%s: could not set playback modes: %r", where, e)
+
+    def on_start(self):
+        self._set_playback_modes("startup")
         # Start each session at a sensible default volume instead of full blast.
         try:
             vol = int(_conf(self.config, "default_volume"))
@@ -96,6 +109,9 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         track = getattr(tl_track, "track", None)
         if track:
             logger.info("playback started: %s [%s]", track.name or "?", track.uri)
+        # Keep repeat/single off (in case the autoplayer re-enabled them) so the
+        # queue won't loop when the last track finishes.
+        self._set_playback_modes("track start")
 
     def playback_state_changed(self, old_state, new_state):
         logger.info("playback state: %s -> %s", old_state, new_state)
@@ -681,9 +697,15 @@ class LogsHandler(tornado.web.RequestHandler):
             tl = self.core.tracklist.get_tl_tracks().get()
             vol = self.core.mixer.get_volume().get()
             consume = self.core.tracklist.get_consume().get()
+            repeat = self.core.tracklist.get_repeat().get()
+            single = self.core.tracklist.get_single().get()
+            random = self.core.tracklist.get_random().get()
             lines.append("playback state : %s" % state)
             lines.append("current track  : %s" % (("%s [%s]" % (cur.name, cur.uri)) if cur else "none"))
-            lines.append("tracklist len  : %s (consume=%s)" % (len(tl or []), consume))
+            lines.append(
+                "tracklist len  : %s (consume=%s repeat=%s single=%s random=%s)"
+                % (len(tl or []), consume, repeat, single, random)
+            )
             for i, t in enumerate((tl or [])[:20]):
                 lines.append("   #%d %s [%s]" % (i, t.track.name or "?", t.track.uri))
             lines.append("volume         : %s" % vol)
