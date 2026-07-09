@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-console.log("[NETJammer] Frontend version: 1.8.1-NETJAMMER (dup-add fix)");
+console.log("[NETJammer] Frontend version: 1.9.0-NETJAMMER (consume-off next/prev)");
 
 // ===== Client-side diagnostics logger =====
 // Buffers client events/errors and ships them to the backend (/netjammer/clientlog)
@@ -193,51 +193,35 @@ angular.module('partyApp', [])
     }
 
     // Playback watchdog: recover from a "stuck" queue. If a track fails to play
-    // (e.g. a YouTube video that 403s), Mopidy briefly starts it (cover art shows)
-    // then drops to "stopped" and does NOT auto-advance, leaving songs queued but
-    // nothing playing. This app only auto-starts on an add, so it can stay stuck.
+    // (e.g. a YouTube video that 403s), Mopidy drops to "stopped" and does NOT
+    // auto-advance, leaving songs queued but nothing playing.
     //
-    // We always act on the HEAD of the tracklist (index 0): under consume mode the
-    // head is the next-to-play, so it's the culprit when we're stuck. We also play
-    // an explicit tlid rather than a bare play(), which can target a stale/removed
-    // "current" track and silently do nothing (that was the never-recovers bug).
-    var stuckCount = 0;
+    // With consume off the tracklist keeps played tracks, so we act by INDEX: if
+    // we're stopped on a track that still has something after it, advance to the
+    // next track. If we're stopped on the last track, that's a legitimate end of
+    // the queue -- do nothing (played tracks before it are not "stuck").
     function playbackWatchdog() {
       if (!$scope.ready || $scope.isSortingQueue) {
         return;
       }
       mopidy.playback.getState().then(function (state) {
         if (state !== 'stopped') {
-          stuckCount = 0;
           return;
         }
         mopidy.tracklist.getTlTracks().then(function (tls) {
           if (!tls || !tls.length) {
-            stuckCount = 0; // stopped with an empty queue is normal
             return;
           }
-          stuckCount++;
-          if (stuckCount === 1) {
-            // Gentle nudge: explicitly (re)start the head track.
-            njlog('WARNING', 'watchdog: stopped with ' + tls.length + ' track(s); nudging head ' + tls[0].track.uri);
-            mopidy.playback.play({ tlid: tls[0].tlid });
-          } else {
-            // Still stopped after a nudge: the head track is unplayable. Drop it
-            // and start the next one, so one bad song can't freeze the party.
-            njlog('WARNING', 'watchdog: head still stuck, removing ' + tls[0].track.uri);
-            mopidy.tracklist.remove([{ tlid: [tls[0].tlid] }]).then(function () {
-              mopidy.tracklist.getTlTracks().then(function (rest) {
-                if (rest && rest.length) {
-                  mopidy.playback.play({ tlid: rest[0].tlid });
-                }
-              });
-              $scope.$apply(function () {
-                $scope.message = ['error', 'Skipped a track that wouldn’t play, keeping the music going.'];
-              });
-              $scope.refreshQueue();
-            });
-            stuckCount = 0; // give the new head its own nudge next cycle before removing
-          }
+          mopidy.tracklist.index().then(function (idx) {
+            var cur = (idx === null || idx === undefined) ? -1 : idx;
+            var nextIdx = cur + 1;
+            if (nextIdx >= tls.length) {
+              return; // stopped at the end of the queue -- nothing to recover
+            }
+            njlog('WARNING', 'watchdog: stopped mid-queue at idx ' + cur +
+              '; advancing to ' + tls[nextIdx].track.uri);
+            mopidy.playback.play({ tlid: tls[nextIdx].tlid });
+          });
         });
       });
     }
@@ -769,7 +753,9 @@ angular.module('partyApp', [])
     };
 
     // "Last song": if we're past the first few seconds of the current song, restart
-    // it; otherwise ask the server to replay the previous track (shared history).
+    // it; otherwise go to the previous track. With consume off the previous track is
+    // still in the tracklist, so this just moves the pointer back (no re-insertion,
+    // no duplicates) -- and it's the real server tracklist, so it's shared.
     $scope.RESTART_THRESHOLD_MS = 3000;
     $scope.playLastSong = function () {
       if ($scope.currentState.length > 0 && $scope.currentState.position > $scope.RESTART_THRESHOLD_MS) {
@@ -780,19 +766,20 @@ angular.module('partyApp', [])
         return;
       }
       njlog('INFO', 'action: back -> previous');
-      $http.post('/netjammer/previous', '').then(
-        function (resp) {
-          if (resp.data && resp.data.name) {
-            $scope.message = ['success', 'Replaying: ' + resp.data.name];
-          }
-          $scope.refreshHistory();
-        },
-        function (resp) {
-          var msg = (resp.data && resp.data.error) ? resp.data.error : 'No previous song to play yet';
-          $scope.message = ['error', msg];
-          $scope.refreshHistory();
+      mopidy.tracklist.index().then(function (idx) {
+        if (idx === null || idx === undefined || idx <= 0) {
+          $scope.$apply(function () {
+            $scope.message = ['error', 'Already at the first song'];
+          });
+          return;
         }
-      );
+        mopidy.tracklist.getTlTracks().then(function (tls) {
+          var prev = tls && tls[idx - 1];
+          if (prev) {
+            mopidy.playback.play({ tlid: prev.tlid });
+          }
+        });
+      });
     };
 
     $scope.getTrackSource = function (track) {

@@ -12,7 +12,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.8.1-NETJAMMER"
+__version__ = "1.9.0-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -75,6 +75,15 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         self.core = core
 
     def on_start(self):
+        # Consume mode OFF: keep played tracks in the tracklist so next()/previous()
+        # move a pointer through a stable, ordered list. (Consume + re-inserting for
+        # "back" was scrambling the order and creating duplicates.) The queue view
+        # only shows tracks after the current one, so played songs still stay hidden.
+        try:
+            self.core.tracklist.set_consume(False)
+            logger.info("startup: consume mode disabled")
+        except Exception as e:
+            logger.warning("startup: could not set consume mode: %r", e)
         # Start each session at a sensible default volume instead of full blast.
         try:
             vol = int(_conf(self.config, "default_volume"))
@@ -313,21 +322,19 @@ class AddRequestHandler(tornado.web.RequestHandler):
             self.set_status(500)
             return
 
-        self.core.tracklist.set_consume(True)
         state = self.core.playback.get_state().get()
         logger.info(
             "add: %s from %s at pos %s (state=%s)", track_uri, self._getip(), pos + 1, state
         )
         if state == "stopped":
-            # Start the head of the tracklist explicitly. A bare play() can target a
-            # stale "current" track (left over after the queue drained or a failed
-            # play) and silently do nothing, leaving the song queued but not playing.
-            tl_tracks = self.core.tracklist.get_tl_tracks().get()
-            if tl_tracks:
-                logger.info("add: playback was stopped, starting head %s", tl_tracks[0].track.uri)
-                self.core.playback.play(tlid=tl_tracks[0].tlid)
-            else:
-                logger.warning("add: stopped with empty tracklist after add")
+            # Play the track we just added. With consume off, the tracklist head is
+            # an already-played song, so we must NOT start from the head (that would
+            # replay the whole list). Playing the newly-added tlid also avoids a bare
+            # play() no-op on a stale "current" pointer.
+            new_tl = self.data["last"]
+            if new_tl is not None:
+                logger.info("add: playback was stopped, starting added track %s", track_uri)
+                self.core.playback.play(tlid=new_tl.tlid)
 
 
 class PlaylistHandler(tornado.web.RequestHandler):
@@ -383,6 +390,7 @@ class PlaylistHandler(tornado.web.RequestHandler):
                 return
 
             added_count = 0
+            first_added = None
             for track_uri in tracks:
                 try:
                     print(f"[NETJammer] Adding track: {track_uri}")
@@ -405,6 +413,8 @@ class PlaylistHandler(tornado.web.RequestHandler):
                     ).get()[0]
 
                     self.data["last"] = last_track
+                    if first_added is None:
+                        first_added = last_track
 
                     # Only log one entry in anti-spam queue tracking per playlist chunk
                     if added_count == 0:
@@ -416,11 +426,14 @@ class PlaylistHandler(tornado.web.RequestHandler):
                     print(f"[NETJammer] Error adding track {track_uri}: {repr(e)}")
 
             # Trigger playback ONCE after all tracks have been processed. Play the
-            # head track explicitly (a bare play() can no-op on a stale current).
-            if added_count > 0 and self.core.playback.get_state().get() == "stopped":
-                tl_tracks = self.core.tracklist.get_tl_tracks().get()
-                if tl_tracks:
-                    self.core.playback.play(tlid=tl_tracks[0].tlid)
+            # first track we just added (consume is off, so the tracklist head is a
+            # previously-played song and must not be restarted).
+            if (
+                added_count > 0
+                and first_added is not None
+                and self.core.playback.get_state().get() == "stopped"
+            ):
+                self.core.playback.play(tlid=first_added.tlid)
 
             self.write(
                 json.dumps(
@@ -603,53 +616,28 @@ class HistoryHandler(tornado.web.RequestHandler):
 
 
 class PreviousHandler(tornado.web.RequestHandler):
-    """Replay the most-recently-played track (the "back" button). Pops the shared
-    history, re-inserts that track at the current position, and plays it."""
+    """The "back" button. With consume off the previous track is still in the
+    tracklist, so this is just Mopidy's native previous() -- no re-insertion."""
 
     def initialize(self, core):
         self.core = core
 
     def post(self):
-        global _history_suppress_uri
-        with _history_lock:
-            if not _history:
+        try:
+            idx = self.core.tracklist.index().get()
+            if idx is None or idx <= 0:
                 self.set_status(409)
                 self.write(json.dumps({"error": "No previous song to play"}))
                 return
-            prev = _history.pop()
-
-        uri = prev["uri"]
-        # If a track is currently playing it gets re-queued ahead of the replayed
-        # song; suppress its "ended" event so it isn't recorded as history again.
-        try:
-            current = self.core.playback.get_current_tl_track().get()
-        except Exception:
-            current = None
-        with _history_lock:
-            _history_suppress_uri = (
-                current.track.uri if current and current.track else None
-            )
-
-        try:
-            idx = self.core.tracklist.index().get()
-            if idx is None:
-                idx = 0
-            self.core.tracklist.set_consume(True)
-            added = self.core.tracklist.add(uris=[uri], at_position=idx).get()
-            if added:
-                self.core.playback.play(tlid=added[0].tlid)
-                logger.info("back: replaying %s [%s]", prev["name"], uri)
-                self.write(json.dumps({"success": True, "name": prev["name"]}))
-            else:
-                raise Exception("track could not be queued")
+            tl = self.core.tracklist.get_tl_tracks().get()
+            prev = tl[idx - 1]
+            self.core.playback.play(tlid=prev.tlid)
+            logger.info("back: previous track %s", prev.track.uri)
+            self.write(json.dumps({"success": True, "name": prev.track.name}))
         except Exception as e:
-            # Couldn't replay it — put it back so the history isn't lost.
-            with _history_lock:
-                _history.append(prev)
-                _history_suppress_uri = None
-            logger.error("back: could not replay %s: %r", uri, e)
+            logger.error("back: previous failed: %r", e)
             self.set_status(500)
-            self.write(json.dumps({"error": "Could not replay previous song: " + repr(e)}))
+            self.write(json.dumps({"error": "Could not go to previous song: " + repr(e)}))
 
 
 class ClientLogHandler(tornado.web.RequestHandler):
