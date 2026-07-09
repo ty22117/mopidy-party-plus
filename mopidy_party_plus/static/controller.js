@@ -1,7 +1,8 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-console.log("[NETJammer] Frontend version: 1.9.2-NETJAMMER (no repeat-loop)");
+var NJ_FRONTEND_VERSION = '1.9.3-NETJAMMER (server end-of-queue guard)';
+console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
 // Buffers client events/errors and ships them to the backend (/netjammer/clientlog)
@@ -54,7 +55,7 @@ console.log("[NETJammer] Frontend version: 1.9.2-NETJAMMER (no repeat-loop)");
     var r = ev && ev.reason;
     log('ERROR', 'unhandledrejection: ' + (r && r.message ? r.message : r));
   });
-  log('INFO', 'client logger init; ua=' + navigator.userAgent);
+  log('INFO', 'client logger init; frontend=' + NJ_FRONTEND_VERSION + '; ua=' + navigator.userAgent);
 })();
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
@@ -192,40 +193,10 @@ angular.module('partyApp', [])
       }
     }
 
-    // Index (in the tracklist) of the track that most recently started playing.
-    // Needed by the watchdog: when playback stops, Mopidy reports index=null both
-    // at the end of the queue AND on a failed track, so we use this remembered
-    // position to tell them apart.
-    var lastTrackIndex = -1;
-
-    // Playback watchdog: recover from a track that FAILED mid-queue (e.g. a YouTube
-    // 403) -- Mopidy stops and doesn't auto-advance. We must NOT confuse that with a
-    // legitimate end of the queue (which would wrongly loop back to the first song).
-    // So: if we stopped after the last track -> do nothing; if there are tracks
-    // after the one that was playing -> advance to the next.
-    function playbackWatchdog() {
-      if (!$scope.ready || $scope.isSortingQueue) {
-        return;
-      }
-      mopidy.playback.getState().then(function (state) {
-        if (state !== 'stopped') {
-          return;
-        }
-        mopidy.tracklist.getTlTracks().then(function (tls) {
-          if (!tls || !tls.length || lastTrackIndex < 0) {
-            return;
-          }
-          if (lastTrackIndex >= tls.length - 1) {
-            return; // stopped after the last track -- legitimate end of the queue
-          }
-          var nextIdx = lastTrackIndex + 1;
-          njlog('WARNING', 'watchdog: stopped after idx ' + lastTrackIndex +
-            '; advancing to ' + tls[nextIdx].track.uri);
-          mopidy.playback.play({ tlid: tls[nextIdx].tlid });
-        });
-      });
-    }
-    $interval(playbackWatchdog, 4000);
+    // (The old client-side playback watchdog was removed: with consume off Mopidy
+    // auto-advances past failed tracks, and recovery/end-of-queue handling now
+    // lives server-side in the NetjammerFrontend actor -- so there's no client
+    // timer that could fight it or loop the queue.)
 
     // Get the max tracks to lookup at once from the 'max_results' config value in mopidy.conf
     $http.get('/netjammer/config?key=max_results').then(function success (response) {
@@ -342,13 +313,6 @@ angular.module('partyApp', [])
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
       $scope.$apply();
-      // Remember where in the tracklist this track is, so the watchdog can tell
-      // "stopped at the end" from "stopped on a failed track mid-queue".
-      mopidy.tracklist.index().then(function (i) {
-        if (i !== null && i !== undefined) {
-          lastTrackIndex = i;
-        }
-      });
       $scope.fetchAlbumArt(event.tl_track.track);
       $scope.refreshQueue();
       $scope.refreshHistory();
@@ -815,6 +779,7 @@ angular.module('partyApp', [])
       // Handle all three states: playing -> pause, paused -> resume, stopped -> play.
       // (Previously "stopped" fell through to pause() and did nothing, so a queued
       // song that had stopped couldn't be started from the button.)
+      njlog('INFO', 'action: play/pause (state=' + $scope.currentState.state + ')');
       if ($scope.currentState.state === 'playing') {
         mopidy.playback.pause().done();
       } else if ($scope.currentState.state === 'paused') {

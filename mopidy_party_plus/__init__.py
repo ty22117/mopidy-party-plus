@@ -12,7 +12,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.9.2-NETJAMMER"
+__version__ = "1.9.3-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -73,6 +73,8 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         super().__init__()
         self.config = config
         self.core = core
+        self._at_end = False  # True when the track that just ended was the last in the queue
+        self._ended_at = 0.0  # when that last track ended (to catch only the immediate auto-loop)
 
     def _set_playback_modes(self, where):
         # We want a plain, linear queue: consume off (keep played tracks for the
@@ -109,9 +111,27 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         track = getattr(tl_track, "track", None)
         if track:
             logger.info("playback started: %s [%s]", track.name or "?", track.uri)
-        # Keep repeat/single off (in case the autoplayer re-enabled them) so the
-        # queue won't loop when the last track finishes.
+        # Keep repeat/single off (in case something re-enabled them).
         self._set_playback_modes("track start")
+        # End-of-queue guard: if the LAST track just ended and playback wrapped
+        # around to the FIRST track, something (not the web UI) auto-looped the
+        # queue. Stop it -- the queue should end, not restart.
+        try:
+            # Only treat it as an auto-loop if it wrapped immediately after the end
+            # (a deliberate user "play" later is allowed to restart the album).
+            if self._at_end and (time.time() - self._ended_at) < 4.0:
+                tls = self.core.tracklist.get_tl_tracks().get() or []
+                started_idx = next(
+                    (i for i, t in enumerate(tls) if t.tlid == tl_track.tlid), None
+                )
+                if started_idx == 0 and len(tls) > 1:
+                    logger.info(
+                        "end-of-queue loop detected (wrapped to first track); stopping"
+                    )
+                    self.core.playback.stop()
+        except Exception as e:
+            logger.warning("end-of-queue guard error: %r", e)
+        self._at_end = False
 
     def playback_state_changed(self, old_state, new_state):
         logger.info("playback state: %s -> %s", old_state, new_state)
@@ -124,6 +144,17 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         logger.info(
             "playback ended: %s [%s] at %sms", track.name or "?", track.uri, time_position
         )
+        # Record whether this was the last track in the queue (used by the
+        # end-of-queue guard in track_playback_started).
+        try:
+            tls = self.core.tracklist.get_tl_tracks().get() or []
+            ended_idx = next(
+                (i for i, t in enumerate(tls) if t.tlid == tl_track.tlid), None
+            )
+            self._at_end = ended_idx is not None and ended_idx >= len(tls) - 1
+            self._ended_at = time.time()
+        except Exception:
+            self._at_end = False
         with _history_lock:
             if _history_suppress_uri == track.uri:
                 # Ended only because "back" jumped away from it; it's re-queued
