@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-console.log("[NETJammer] Frontend version: 1.9.0-NETJAMMER (consume-off next/prev)");
+console.log("[NETJammer] Frontend version: 1.9.1-NETJAMMER (no end-of-queue loop)");
 
 // ===== Client-side diagnostics logger =====
 // Buffers client events/errors and ships them to the backend (/netjammer/clientlog)
@@ -192,14 +192,17 @@ angular.module('partyApp', [])
       }
     }
 
-    // Playback watchdog: recover from a "stuck" queue. If a track fails to play
-    // (e.g. a YouTube video that 403s), Mopidy drops to "stopped" and does NOT
-    // auto-advance, leaving songs queued but nothing playing.
-    //
-    // With consume off the tracklist keeps played tracks, so we act by INDEX: if
-    // we're stopped on a track that still has something after it, advance to the
-    // next track. If we're stopped on the last track, that's a legitimate end of
-    // the queue -- do nothing (played tracks before it are not "stuck").
+    // Index (in the tracklist) of the track that most recently started playing.
+    // Needed by the watchdog: when playback stops, Mopidy reports index=null both
+    // at the end of the queue AND on a failed track, so we use this remembered
+    // position to tell them apart.
+    var lastTrackIndex = -1;
+
+    // Playback watchdog: recover from a track that FAILED mid-queue (e.g. a YouTube
+    // 403) -- Mopidy stops and doesn't auto-advance. We must NOT confuse that with a
+    // legitimate end of the queue (which would wrongly loop back to the first song).
+    // So: if we stopped after the last track -> do nothing; if there are tracks
+    // after the one that was playing -> advance to the next.
     function playbackWatchdog() {
       if (!$scope.ready || $scope.isSortingQueue) {
         return;
@@ -209,19 +212,16 @@ angular.module('partyApp', [])
           return;
         }
         mopidy.tracklist.getTlTracks().then(function (tls) {
-          if (!tls || !tls.length) {
+          if (!tls || !tls.length || lastTrackIndex < 0) {
             return;
           }
-          mopidy.tracklist.index().then(function (idx) {
-            var cur = (idx === null || idx === undefined) ? -1 : idx;
-            var nextIdx = cur + 1;
-            if (nextIdx >= tls.length) {
-              return; // stopped at the end of the queue -- nothing to recover
-            }
-            njlog('WARNING', 'watchdog: stopped mid-queue at idx ' + cur +
-              '; advancing to ' + tls[nextIdx].track.uri);
-            mopidy.playback.play({ tlid: tls[nextIdx].tlid });
-          });
+          if (lastTrackIndex >= tls.length - 1) {
+            return; // stopped after the last track -- legitimate end of the queue
+          }
+          var nextIdx = lastTrackIndex + 1;
+          njlog('WARNING', 'watchdog: stopped after idx ' + lastTrackIndex +
+            '; advancing to ' + tls[nextIdx].track.uri);
+          mopidy.playback.play({ tlid: tls[nextIdx].tlid });
         });
       });
     }
@@ -342,6 +342,13 @@ angular.module('partyApp', [])
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
       $scope.$apply();
+      // Remember where in the tracklist this track is, so the watchdog can tell
+      // "stopped at the end" from "stopped on a failed track mid-queue".
+      mopidy.tracklist.index().then(function (i) {
+        if (i !== null && i !== undefined) {
+          lastTrackIndex = i;
+        }
+      });
       $scope.fetchAlbumArt(event.tl_track.track);
       $scope.refreshQueue();
       $scope.refreshHistory();
