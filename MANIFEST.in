@@ -23,3 +23,7 @@ recursive-include mopidy_party_plus *.conf
 recursive-include mopidy_party_plus *.css
 recursive-include mopidy_party_plus *.html
 recursive-include mopidy_party_plus *.js
+recursive-include mopidy_party_plus *.png
+recursive-include mopidy_party_plus *.ico
+recursive-include mopidy_party_plus *.woff
+recursive-include mopidy_party_plus *.woff2
