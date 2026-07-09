@@ -12,7 +12,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.8.0-NETJAMMER"
+__version__ = "1.8.1-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -275,6 +275,21 @@ class AddRequestHandler(tornado.web.RequestHandler):
         if not track_uri:
             self.set_status(400)
             return
+
+        # Idempotency guard: ignore the exact same track from the same client within
+        # a few seconds. Catches double taps and proxy (nginx) POST retries, which
+        # were queuing songs twice. Distinct users / later re-adds are unaffected.
+        now = time.time()
+        ip = self._getip()
+        recent = self.data.setdefault("recent_adds", {})
+        for k in [k for k, ts in recent.items() if now - ts > 10.0]:
+            del recent[k]  # prune stale entries
+        key = ip + "|" + track_uri
+        if key in recent and (now - recent[key]) < 3.0:
+            logger.info("add: ignoring duplicate %s from %s (within 3s)", track_uri, ip)
+            recent[key] = now
+            return  # already queued a moment ago; treat as success
+        recent[key] = now
 
         pos = 0
         if self.data["last"]:

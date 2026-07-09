@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-console.log("[NETJammer] Frontend version: 1.8.0-NETJAMMER (diagnostics)");
+console.log("[NETJammer] Frontend version: 1.8.1-NETJAMMER (dup-add fix)");
 
 // ===== Client-side diagnostics logger =====
 // Buffers client events/errors and ships them to the backend (/netjammer/clientlog)
@@ -41,7 +41,13 @@ console.log("[NETJammer] Frontend version: 1.8.0-NETJAMMER (diagnostics)");
     } catch (e) { /* ignore */ }
   });
   window.addEventListener('error', function (ev) {
-    log('ERROR', 'window.onerror: ' + (ev.message || '') +
+    var m = ev.message || '';
+    // Mopidy.js reconnect churn on load ("WebSocket is closed/still connecting")
+    // is transient and self-heals; don't spam the diagnostics log with it.
+    if (m.indexOf('WebSocket is') !== -1) {
+      return;
+    }
+    log('ERROR', 'window.onerror: ' + m +
       (ev.filename ? (' @ ' + ev.filename + ':' + ev.lineno) : ''));
   });
   window.addEventListener('unhandledrejection', function (ev) {
@@ -253,14 +259,14 @@ angular.module('partyApp', [])
 
     // Get the source priority list
     $http.get('/netjammer/config?key=source_prio').then(function success (response) {
-      if (response.status == 200) {
-        $scope.sources_priority = [...data.matchAll(/\w+/g)].map(x => x[0]);
+      if (response.status == 200 && typeof response.data === 'string') {
+        $scope.sources_priority = [...response.data.matchAll(/\w+/g)].map(x => x[0]);
       }
     }, null);
     // Get the source blacklist
     $http.get('/netjammer/config?key=source_blacklist').then(function success (response) {
-      if (response.status == 200) {
-        $scope.sources_blacklist = [...data.matchAll(/\w+/g)].map(x => x[0]);
+      if (response.status == 200 && typeof response.data === 'string') {
+        $scope.sources_blacklist = [...response.data.matchAll(/\w+/g)].map(x => x[0]);
       }
     }, null);
 
@@ -503,6 +509,17 @@ angular.module('partyApp', [])
     };
 
     $scope.addTrackResult = function (track) {
+      if (!track || !track.uri) {
+        return;
+      }
+      // De-duplicate: search across multiple sources (or YouTube's own result
+      // buckets) can return the same track more than once. Showing it twice led
+      // to it being queued twice, so keep only the first occurrence.
+      for (var j = 0; j < $scope.tracks.length; j++) {
+        if ($scope.tracks[j].uri === track.uri) {
+          return;
+        }
+      }
       $scope.tracks.push(track);
       mopidy.tracklist.filter([{ 'uri': [track.uri] }]).done(
         function (matches) {
@@ -517,6 +534,11 @@ angular.module('partyApp', [])
     };
 
     $scope.addTrack = function (track) {
+      // Guard against double taps: once an add is in flight the row is disabled,
+      // so a second tap (common while a slow YouTube add resolves) is ignored.
+      if (track.disabled) {
+        return;
+      }
       track.disabled = true;
       njlog('INFO', 'action: add ' + track.uri);
 
@@ -526,6 +548,7 @@ angular.module('partyApp', [])
         },
         function error(response) {
           njlog('ERROR', 'add failed (' + response.status + '): ' + track.uri + ' — ' + response.data);
+          track.disabled = false; // let them try again
           if (response.status === 409) {
             $scope.message = ['error', '' + response.data];
           } else {
