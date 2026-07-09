@@ -210,6 +210,15 @@
           More
         </button>
       </div>
+
+      <!-- Diagnostics: hand this log to support when something misbehaves -->
+      <hr>
+      <div style="text-align:center;">
+        <button type="button" class="btn btn-sm btn-secondary" ng-click="downloadLogs()">
+          <span class="fas fa-download"></span> Download diagnostics log
+        </button>
+        <div><small class="tracksource" style="float:none; text-transform:none;">Reproduce the issue first, then download and send this file.</small></div>
+      </div>
     </div>
   </body>
 </html>

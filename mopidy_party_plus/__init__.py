@@ -1,7 +1,9 @@
 import os
 import json
 import re
+import time
 import logging
+import datetime
 import threading
 from collections import deque
 
@@ -10,7 +12,51 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.7.0-NETJAMMER"
+__version__ = "1.8.0-NETJAMMER"
+
+# NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
+# Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
+# logs, and exposed at /logs so intermittent problems can be pulled after the fact.
+logger = logging.getLogger("netjammer")
+
+_log_lock = threading.Lock()
+_log_buffer = deque(maxlen=4000)  # [{"ts": float, "level": str, "logger": str, "msg": str, "source": "server"|"client"}]
+
+
+def _record_log(ts, level, logger_name, msg, source):
+    with _log_lock:
+        _log_buffer.append(
+            {
+                "ts": float(ts),
+                "level": str(level),
+                "logger": str(logger_name),
+                "msg": str(msg),
+                "source": source,
+            }
+        )
+
+
+def _fmt_ts(ts):
+    try:
+        return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(ts)
+
+
+class DiagnosticsLogHandler(logging.Handler):
+    """Captures log records into the diagnostics ring buffer: everything from the
+    'netjammer' logger, plus WARNING and above from any logger (Mopidy, yt-dlp...)."""
+
+    def emit(self, record):
+        try:
+            name = record.name or ""
+            if not (name.startswith("netjammer") or record.levelno >= logging.WARNING):
+                return
+            _record_log(
+                record.created, record.levelname, name, record.getMessage(), "server"
+            )
+        except Exception:
+            pass
 
 # Shared, server-side play history so the "back" button works across page
 # refreshes and for everyone who joins (it lives as long as Mopidy runs).
@@ -31,15 +77,28 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
     def on_start(self):
         # Start each session at a sensible default volume instead of full blast.
         try:
-            self.core.mixer.set_volume(int(_conf(self.config, "default_volume")))
-        except Exception:
-            pass
+            vol = int(_conf(self.config, "default_volume"))
+            self.core.mixer.set_volume(vol)
+            logger.info("startup: default volume set to %s%%", vol)
+        except Exception as e:
+            logger.warning("startup: could not set default volume: %r", e)
+
+    def track_playback_started(self, tl_track):
+        track = getattr(tl_track, "track", None)
+        if track:
+            logger.info("playback started: %s [%s]", track.name or "?", track.uri)
+
+    def playback_state_changed(self, old_state, new_state):
+        logger.info("playback state: %s -> %s", old_state, new_state)
 
     def track_playback_ended(self, tl_track, time_position):
         global _history_suppress_uri
         track = getattr(tl_track, "track", None)
         if not track or not track.uri:
             return
+        logger.info(
+            "playback ended: %s [%s] at %sms", track.name or "?", track.uri, time_position
+        )
         with _history_lock:
             if _history_suppress_uri == track.uri:
                 # Ended only because "back" jumped away from it; it's re-queued
@@ -234,18 +293,26 @@ class AddRequestHandler(tornado.web.RequestHandler):
             self.data["queue"].append(self._getip())
             self.data["queue"].pop(0)
         except Exception as e:
+            logger.error("add failed for %s from %s: %r", track_uri, self._getip(), e)
             self.write("Unable to add track. Internal Server Error: " + repr(e))
             self.set_status(500)
             return
 
         self.core.tracklist.set_consume(True)
-        if self.core.playback.get_state().get() == "stopped":
+        state = self.core.playback.get_state().get()
+        logger.info(
+            "add: %s from %s at pos %s (state=%s)", track_uri, self._getip(), pos + 1, state
+        )
+        if state == "stopped":
             # Start the head of the tracklist explicitly. A bare play() can target a
             # stale "current" track (left over after the queue drained or a failed
             # play) and silently do nothing, leaving the song queued but not playing.
             tl_tracks = self.core.tracklist.get_tl_tracks().get()
             if tl_tracks:
+                logger.info("add: playback was stopped, starting head %s", tl_tracks[0].track.uri)
                 self.core.playback.play(tlid=tl_tracks[0].tlid)
+            else:
+                logger.warning("add: stopped with empty tracklist after add")
 
 
 class PlaylistHandler(tornado.web.RequestHandler):
@@ -556,6 +623,7 @@ class PreviousHandler(tornado.web.RequestHandler):
             added = self.core.tracklist.add(uris=[uri], at_position=idx).get()
             if added:
                 self.core.playback.play(tlid=added[0].tlid)
+                logger.info("back: replaying %s [%s]", prev["name"], uri)
                 self.write(json.dumps({"success": True, "name": prev["name"]}))
             else:
                 raise Exception("track could not be queued")
@@ -564,8 +632,100 @@ class PreviousHandler(tornado.web.RequestHandler):
             with _history_lock:
                 _history.append(prev)
                 _history_suppress_uri = None
+            logger.error("back: could not replay %s: %r", uri, e)
             self.set_status(500)
             self.write(json.dumps({"error": "Could not replay previous song: " + repr(e)}))
+
+
+class ClientLogHandler(tornado.web.RequestHandler):
+    """Ingest a batch of client-side log entries so they merge with server logs."""
+
+    def post(self):
+        try:
+            payload = json.loads(self.request.body.decode() or "[]")
+        except Exception:
+            self.set_status(400)
+            self.write("bad json")
+            return
+        if isinstance(payload, dict):
+            payload = [payload]
+        for e in payload if isinstance(payload, list) else []:
+            try:
+                _record_log(
+                    e.get("ts") or time.time(),
+                    e.get("level", "INFO"),
+                    "client",
+                    e.get("msg", ""),
+                    "client",
+                )
+            except Exception:
+                pass
+        self.write("ok")
+
+
+class LogsHandler(tornado.web.RequestHandler):
+    """Return the merged server+client diagnostics log. ?format=json for JSON,
+    ?download=1 to download as a .txt file. Includes a live playback snapshot."""
+
+    def initialize(self, core):
+        self.core = core
+
+    def _snapshot(self):
+        lines = []
+        try:
+            state = self.core.playback.get_state().get()
+            cur = self.core.playback.get_current_track().get()
+            tl = self.core.tracklist.get_tl_tracks().get()
+            vol = self.core.mixer.get_volume().get()
+            consume = self.core.tracklist.get_consume().get()
+            lines.append("playback state : %s" % state)
+            lines.append("current track  : %s" % (("%s [%s]" % (cur.name, cur.uri)) if cur else "none"))
+            lines.append("tracklist len  : %s (consume=%s)" % (len(tl or []), consume))
+            for i, t in enumerate((tl or [])[:20]):
+                lines.append("   #%d %s [%s]" % (i, t.track.name or "?", t.track.uri))
+            lines.append("volume         : %s" % vol)
+        except Exception as e:
+            lines.append("snapshot error: %r" % e)
+        with _history_lock:
+            lines.append("history depth  : %d" % len(_history))
+        return lines
+
+    def get(self):
+        with _log_lock:
+            items = sorted(list(_log_buffer), key=lambda x: x["ts"])
+        if self.get_argument("format", "text") == "json":
+            self.set_header("Content-Type", "application/json")
+            self.write(json.dumps({"version": __version__, "entries": items}))
+            return
+
+        out = []
+        out.append("NETJammer diagnostics")
+        out.append("version   : %s" % __version__)
+        out.append("generated : %s" % _fmt_ts(time.time()))
+        out.append("entries   : %d" % len(items))
+        out.append("")
+        out.append("=== current snapshot ===")
+        out.extend(self._snapshot())
+        out.append("")
+        out.append("=== log (oldest first; S=server C=client) ===")
+        for it in items:
+            out.append(
+                "%s %s %-7s %s: %s"
+                % (
+                    _fmt_ts(it["ts"]),
+                    (it.get("source", "?")[:1].upper()),
+                    it.get("level", ""),
+                    it.get("logger", ""),
+                    it.get("msg", ""),
+                )
+            )
+        text = "\n".join(out)
+        self.set_header("Content-Type", "text/plain; charset=utf-8")
+        if self.get_argument("download", None) is not None:
+            self.set_header(
+                "Content-Disposition", 'attachment; filename="netjammer-logs.txt"'
+            )
+        self.write(text)
 
 
 def party_factory(config, core):
@@ -583,10 +743,16 @@ def party_factory(config, core):
     # Install the log watcher once, wired to this app's shared error buffer.
     global _handler_installed
     if not _handler_installed:
-        handler = PlaybackErrorLogHandler(data)
-        handler.setLevel(logging.WARNING)
-        logging.getLogger().addHandler(handler)
+        error_handler = PlaybackErrorLogHandler(data)
+        error_handler.setLevel(logging.WARNING)
+        logging.getLogger().addHandler(error_handler)
+        # Diagnostics buffer: NETJammer INFO + anything WARNING and above.
+        diag_handler = DiagnosticsLogHandler()
+        diag_handler.setLevel(logging.INFO)
+        logging.getLogger().addHandler(diag_handler)
+        logger.setLevel(logging.INFO)  # ensure our own INFO records propagate
         _handler_installed = True
+        logger.info("NETJammer %s started; diagnostics logging enabled", __version__)
 
     return [
         (
@@ -602,6 +768,8 @@ def party_factory(config, core):
         ("/errors", ErrorsHandler, {"data": data}),
         ("/history", HistoryHandler, {}),
         ("/previous", PreviousHandler, {"core": core}),
+        ("/clientlog", ClientLogHandler, {}),
+        ("/logs", LogsHandler, {"core": core}),
     ]
 
 

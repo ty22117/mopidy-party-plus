@@ -1,11 +1,75 @@
 'use strict';
 
-// VERSION MARKER: NETJammer — drawers, album art, playback-error toasts
-console.log("[NETJammer] Frontend version: 1.7.0-NETJAMMER (dark theme toggle)");
+// VERSION MARKER: NETJammer — diagnostics logging
+console.log("[NETJammer] Frontend version: 1.8.0-NETJAMMER (diagnostics)");
+
+// ===== Client-side diagnostics logger =====
+// Buffers client events/errors and ships them to the backend (/netjammer/clientlog)
+// where they merge with server logs. Grab everything later via /netjammer/logs.
+// Kept standalone (plain fetch, on window) so global error hooks and Angular's
+// $exceptionHandler can use it without depending on the controller being up.
+(function () {
+  var pending = [];
+  var MAX_PENDING = 1000;
+  function log(level, msg) {
+    try {
+      pending.push({ ts: Date.now() / 1000, level: level, msg: String(msg) });
+      if (pending.length > MAX_PENDING) pending.shift();
+    } catch (e) { /* ignore */ }
+  }
+  function flush() {
+    if (!pending.length) return Promise.resolve();
+    var batch = pending.splice(0, pending.length);
+    try {
+      return fetch('/netjammer/clientlog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batch),
+        keepalive: true
+      }).catch(function () { /* ignore network errors */ });
+    } catch (e) { return Promise.resolve(); }
+  }
+  window.NJLog = { log: log, flush: flush };
+
+  setInterval(flush, 4000);
+  window.addEventListener('beforeunload', function () {
+    try {
+      if (pending.length && navigator.sendBeacon) {
+        navigator.sendBeacon('/netjammer/clientlog',
+          new Blob([JSON.stringify(pending.splice(0))], { type: 'application/json' }));
+      }
+    } catch (e) { /* ignore */ }
+  });
+  window.addEventListener('error', function (ev) {
+    log('ERROR', 'window.onerror: ' + (ev.message || '') +
+      (ev.filename ? (' @ ' + ev.filename + ':' + ev.lineno) : ''));
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev && ev.reason;
+    log('ERROR', 'unhandledrejection: ' + (r && r.message ? r.message : r));
+  });
+  log('INFO', 'client logger init; ua=' + navigator.userAgent);
+})();
 
 // TODO : add a mopidy service designed for angular, to avoid ugly $scope.$apply()...
 angular.module('partyApp', [])
+  .config(['$provide', function ($provide) {
+    // Route AngularJS exceptions into the diagnostics log too.
+    $provide.decorator('$exceptionHandler', ['$delegate', function ($delegate) {
+      return function (exception, cause) {
+        try {
+          window.NJLog && window.NJLog.log('ERROR', 'angular: ' +
+            (exception && exception.message ? exception.message : exception) +
+            (cause ? (' | ' + cause) : ''));
+        } catch (e) { /* ignore */ }
+        $delegate(exception, cause);
+      };
+    }]);
+  }])
   .controller('MainController', function ($scope, $http, $timeout, $interval) {
+
+    // Shorthand into the diagnostics logger (defined at file scope, on window).
+    var njlog = (window.NJLog && window.NJLog.log) ? window.NJLog.log : function () {};
 
     // Scope variables
     $scope.message = [];
@@ -64,6 +128,7 @@ angular.module('partyApp', [])
       $scope.theme = ($scope.theme === 'dark') ? 'light' : 'dark';
       try { localStorage.setItem('netjammerTheme', $scope.theme); } catch (e) { /* ignore */ }
       applyTheme($scope.theme);
+      njlog('INFO', 'action: theme -> ' + $scope.theme);
     };
 
     // Auto-dismiss status messages (shown as a toast) a few seconds after they appear.
@@ -102,6 +167,7 @@ angular.module('partyApp', [])
 
     function showPlaybackError(e) {
       var reason = e.reason || 'A track could not be played.';
+      njlog('ERROR', 'playback error toast: ' + (e.uri || '') + ' — ' + reason);
       if (e.uri && $scope.ready && mopidy.library) {
         // Resolve the track name so the toast is friendly.
         mopidy.library.lookup({ uris: [e.uri] }).then(function (res) {
@@ -147,10 +213,12 @@ angular.module('partyApp', [])
           stuckCount++;
           if (stuckCount === 1) {
             // Gentle nudge: explicitly (re)start the head track.
+            njlog('WARNING', 'watchdog: stopped with ' + tls.length + ' track(s); nudging head ' + tls[0].track.uri);
             mopidy.playback.play({ tlid: tls[0].tlid });
           } else {
             // Still stopped after a nudge: the head track is unplayable. Drop it
             // and start the next one, so one bad song can't freeze the party.
+            njlog('WARNING', 'watchdog: head still stuck, removing ' + tls[0].track.uri);
             mopidy.tracklist.remove([{ tlid: [tls[0].tlid] }]).then(function () {
               mopidy.tracklist.getTlTracks().then(function (rest) {
                 if (rest && rest.length) {
@@ -245,6 +313,9 @@ angular.module('partyApp', [])
           $scope.search();
           $scope.refreshQueue();
           $scope.refreshHistory();
+          njlog('INFO', 'client: ready (state=' + $scope.currentState.state +
+            ', tracklist=' + $scope.currentState.length +
+            ', volume=' + $scope.currentState.volume + ')');
         });
 
       /* Initialize available sources */
@@ -258,6 +329,7 @@ angular.module('partyApp', [])
     });
 
     mopidy.on('event:playbackStateChanged', function (event) {
+      njlog('INFO', 'client: state ' + event.old_state + ' -> ' + event.new_state);
       $scope.currentState.state = event.new_state;
       $scope.currentState.paused = (event.new_state === 'paused');
       $scope.$apply();
@@ -276,6 +348,7 @@ angular.module('partyApp', [])
     });
 
     mopidy.on('event:trackPlaybackStarted', function (event) {
+      njlog('INFO', 'client: track started ' + (event.tl_track.track.uri || '?'));
       $scope.currentState.track = event.tl_track.track;
       $scope.currentState.position = 0;
       $scope.$apply();
@@ -445,12 +518,14 @@ angular.module('partyApp', [])
 
     $scope.addTrack = function (track) {
       track.disabled = true;
+      njlog('INFO', 'action: add ' + track.uri);
 
       $http.post('/netjammer/add', track.uri).then(
         function success(response) {
           $scope.message = ['success', 'Queued: ' + track.name];
         },
         function error(response) {
+          njlog('ERROR', 'add failed (' + response.status + '): ' + track.uri + ' — ' + response.data);
           if (response.status === 409) {
             $scope.message = ['error', '' + response.data];
           } else {
@@ -498,6 +573,7 @@ angular.module('partyApp', [])
 
     $scope.nextTrack = function () {
       // Instant host skip: advance the tracklist immediately (no voting).
+      njlog('INFO', 'action: skip');
       mopidy.playback.next().then(function () {
         $scope.$apply(function () {
           $scope.message = ['success', 'Skipped to next track'];
@@ -653,16 +729,34 @@ angular.module('partyApp', [])
       }, function () { /* ignore */ });
     };
 
+    // Flush pending client logs to the server, then download the merged
+    // server+client diagnostics log so the user can hand it over for debugging.
+    $scope.downloadLogs = function () {
+      njlog('INFO', 'action: download diagnostics log');
+      var trigger = function () {
+        var a = document.createElement('a');
+        a.href = 'logs?download=1'; // relative to /netjammer/
+        a.download = 'netjammer-logs.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      var p = (window.NJLog && window.NJLog.flush) ? window.NJLog.flush() : null;
+      if (p && p.then) { p.then(trigger, trigger); } else { $timeout(trigger, 300); }
+    };
+
     // "Last song": if we're past the first few seconds of the current song, restart
     // it; otherwise ask the server to replay the previous track (shared history).
     $scope.RESTART_THRESHOLD_MS = 3000;
     $scope.playLastSong = function () {
       if ($scope.currentState.length > 0 && $scope.currentState.position > $scope.RESTART_THRESHOLD_MS) {
+        njlog('INFO', 'action: back -> restart current');
         $scope.currentState.position = 0;
         $scope.seekTrack();
         $scope.message = ['success', 'Restarted current song'];
         return;
       }
+      njlog('INFO', 'action: back -> previous');
       $http.post('/netjammer/previous', '').then(
         function (resp) {
           if (resp.data && resp.data.name) {
