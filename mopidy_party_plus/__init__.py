@@ -14,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.10.2-NETJAMMER"
+__version__ = "1.10.3-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -127,24 +127,36 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
             logger.info("playback started: %s [%s]", track.name or "?", track.uri)
         # Keep repeat/single off (in case something re-enabled them).
         self._set_playback_modes("track start")
-        # End-of-queue guard: if the LAST track just ended and playback wrapped
-        # around to the FIRST track, something (not the web UI) auto-looped the
-        # queue. Stop it -- the queue should end, not restart. Skipped when radio
-        # is on (there we WANT continuation, and radio keeps the queue topped up).
+        # End-of-queue guard: once the LAST track has ended (the queue reached its
+        # end with repeat off), Mopidy won't advance on its own. So if playback
+        # then jumps back to the FIRST track, something looped the queue -- an
+        # external autoplayer, or (commonly) a device still running an OLD cached
+        # client whose removed playback watchdog replays track #0. Stop it. We stay
+        # "armed" for a window so repeated loop attempts (e.g. a stale client's
+        # watchdog retrying every few seconds) are also caught, and disarm as soon
+        # as a real track plays (index > 0, e.g. a freshly-added song) or the
+        # window lapses. Skipped while radio is on (there we want continuation).
         try:
-            if (not _radio["on"]) and self._at_end and (time.time() - self._ended_at) < 4.0:
+            armed = self._at_end
+            self._at_end = False  # disarm by default; re-arm only if we suppress a loop
+            if armed and (not _radio["on"]):
                 tls = self.core.tracklist.get_tl_tracks().get() or []
                 started_idx = next(
                     (i for i, t in enumerate(tls) if t.tlid == tl_track.tlid), None
                 )
-                if started_idx == 0 and len(tls) > 1:
+                if (
+                    started_idx == 0
+                    and len(tls) > 1
+                    and (time.time() - self._ended_at) < 45.0
+                ):
                     logger.info(
-                        "end-of-queue loop detected (wrapped to first track); stopping"
+                        "end-of-queue loop suppressed (wrapped to first track); stopping"
                     )
                     self.core.playback.stop()
+                    self._at_end = True  # stay armed to catch repeated loop attempts
+                    return
         except Exception as e:
             logger.warning("end-of-queue guard error: %r", e)
-        self._at_end = False
         # Radio: if on and the queue is running low, top it up with similar songs.
         _maybe_refill_radio(self.core, self.config)
 
@@ -809,6 +821,10 @@ class IndexHandler(tornado.web.RequestHandler):
             "style": _DEFAULTS["style"],
             "hide_pause": _DEFAULTS["hide_pause"],
             "hide_skip": _DEFAULTS["hide_skip"],
+            # Cache-buster: appended to the JS/CSS URLs so a version bump forces
+            # browsers to fetch fresh assets instead of serving stale cached ones
+            # (stale clients have caused queue-looping and other ghost bugs).
+            "version": __version__,
         }
         # Make the configuration from mopidy.conf [netjammer] section available as variables in index.html
         try:

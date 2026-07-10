@@ -27,11 +27,11 @@
 
     <link href="/netjammer/vendors/bootstrap.min.css" rel="stylesheet">
     <link href="/netjammer/vendors/fontawesome/css/all.min.css" rel="stylesheet">
-    <link href="/netjammer/{{ style }}" rel="stylesheet">
+    <link href="/netjammer/{{ style }}?v={{ version }}" rel="stylesheet">
 
     <script type="text/javascript" src="/netjammer/vendors/mopidy.min.js"></script>
     <script type="text/javascript" src="/netjammer/vendors/angular.min.js"></script>
-    <script type="text/javascript" src="/netjammer/controller.js"></script>
+    <script type="text/javascript" src="/netjammer/controller.js?v={{ version }}"></script>
 
   </head>
   <body ng-controller="MainController">
