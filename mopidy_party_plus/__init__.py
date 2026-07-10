@@ -5,6 +5,8 @@ import time
 import logging
 import datetime
 import threading
+import urllib.parse
+import urllib.request
 from collections import deque
 
 import pykka
@@ -12,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.9.5-NETJAMMER"
+__version__ = "1.10.0-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -63,6 +65,12 @@ class DiagnosticsLogHandler(logging.Handler):
 _history_lock = threading.Lock()
 _history = []               # [{"uri":..., "name":...}] oldest-first, most recent last
 _history_suppress_uri = None  # a track whose next "ended" should NOT be recorded (set during a back-jump)
+
+# Radio mode: party-wide, shared between the HTTP toggle and the frontend actor.
+# When on, the queue is auto-refilled with songs similar to what's playing.
+_radio = {"on": False}
+_radio_lock = threading.Lock()
+_radio_busy = False  # a refill is currently in flight (guards against overlapping refills)
 
 
 class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
@@ -115,11 +123,10 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         self._set_playback_modes("track start")
         # End-of-queue guard: if the LAST track just ended and playback wrapped
         # around to the FIRST track, something (not the web UI) auto-looped the
-        # queue. Stop it -- the queue should end, not restart.
+        # queue. Stop it -- the queue should end, not restart. Skipped when radio
+        # is on (there we WANT continuation, and radio keeps the queue topped up).
         try:
-            # Only treat it as an auto-loop if it wrapped immediately after the end
-            # (a deliberate user "play" later is allowed to restart the album).
-            if self._at_end and (time.time() - self._ended_at) < 4.0:
+            if (not _radio["on"]) and self._at_end and (time.time() - self._ended_at) < 4.0:
                 tls = self.core.tracklist.get_tl_tracks().get() or []
                 started_idx = next(
                     (i for i, t in enumerate(tls) if t.tlid == tl_track.tlid), None
@@ -132,6 +139,8 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
         except Exception as e:
             logger.warning("end-of-queue guard error: %r", e)
         self._at_end = False
+        # Radio: if on and the queue is running low, top it up with similar songs.
+        _maybe_refill_radio(self.core, self.config)
 
     def playback_state_changed(self, old_state, new_state):
         logger.info("playback state: %s -> %s", old_state, new_state)
@@ -255,6 +264,9 @@ _DEFAULTS = {
     "style": "netjammer.css",
     "source_prio": "local\nspotify\ntidal\nyoutube",
     "source_blacklist": "cd",
+    "lastfm_api_key": "",
+    "radio_min_queue": 2,
+    "radio_batch": 5,
 }
 
 
@@ -272,6 +284,211 @@ def _conf(config, key):
     except (KeyError, TypeError):
         value = None
     return _DEFAULTS.get(key) if value is None else value
+
+
+# ===== Radio mode: auto-queue similar songs (Last.fm -> YouTube) =====
+
+_BRACKETS_RE = re.compile(r"[\(\[\{].*?[\)\]\}]")  # (Official Video), [HD], {Lyrics}...
+_FEAT_RE = re.compile(r"\b(feat\.?|ft\.?|featuring)\b.*", re.IGNORECASE)
+
+
+def _clean_title(name):
+    """Strip common YouTube-title noise so it matches Last.fm/search better."""
+    if not name:
+        return ""
+    s = _BRACKETS_RE.sub("", name)
+    s = _FEAT_RE.sub("", s)
+    # Drop trailing " - Topic"/"official audio"-style tails and separators.
+    s = re.sub(r"\s*[-–|]\s*(official\s*(audio|video|music video)|audio|video|lyrics?)\s*$",
+               "", s, flags=re.IGNORECASE)
+    return s.strip(" -–|·•").strip()
+
+
+def _seed_from_track(track):
+    """Return (artist, title) to seed Last.fm from a Mopidy Track."""
+    artist = ""
+    try:
+        if track.artists:
+            artist = next(iter(track.artists)).name or ""
+    except Exception:
+        artist = ""
+    title = _clean_title(getattr(track, "name", "") or "")
+    return _clean_title(artist), title
+
+
+def _lastfm_similar(artist, title, api_key, limit):
+    """Query Last.fm track.getSimilar -> list of (artist, title). Falls back to
+    artist.getSimilar's top artists (as {artist, ''} seeds) if no track match."""
+    def _call(params):
+        params = dict(params)
+        params.update({"api_key": api_key, "format": "json"})
+        url = "https://ws.audioscrobbler.com/2.0/?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url, headers={"User-Agent": "NETJammer/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+
+    out = []
+    try:
+        data = _call({
+            "method": "track.getsimilar",
+            "artist": artist,
+            "track": title,
+            "limit": limit,
+            "autocorrect": 1,
+        })
+        for t in (data.get("similartracks", {}) or {}).get("track", []) or []:
+            nm = t.get("name")
+            ar = (t.get("artist") or {}).get("name")
+            if nm and ar:
+                out.append((ar, nm))
+    except Exception as e:
+        logger.warning("radio: last.fm getSimilar failed: %r", e)
+
+    if not out and artist:
+        # Fallback: similar artists -> we search by artist name only.
+        try:
+            data = _call({
+                "method": "artist.getsimilar",
+                "artist": artist,
+                "limit": limit,
+                "autocorrect": 1,
+            })
+            for a in (data.get("similarartists", {}) or {}).get("artist", []) or []:
+                nm = a.get("name")
+                if nm:
+                    out.append((nm, ""))
+        except Exception as e:
+            logger.warning("radio: last.fm artist.getSimilar failed: %r", e)
+    return out
+
+
+def _norm_key(artist, title):
+    return re.sub(r"\s+", " ", ("%s %s" % (artist, title)).strip().lower())
+
+
+def _refill_radio(core, api_key, batch, seed_track=None):
+    """Fetch songs similar to the seed (default: currently playing), resolve each
+    to a YouTube track via library.search, and append playable ones. Runs in a
+    background thread (never call from the actor's event loop directly)."""
+    global _radio_busy
+    try:
+        seed = seed_track
+        if seed is None:
+            try:
+                seed = core.playback.get_current_track().get()
+            except Exception:
+                seed = None
+        if seed is None:
+            logger.info("radio: no seed track; nothing to refill")
+            return
+
+        artist, title = _seed_from_track(seed)
+        if not title and not artist:
+            logger.info("radio: seed has no usable artist/title")
+            return
+        logger.info("radio: seeding from %s - %s", artist or "?", title or "?")
+
+        similar = _lastfm_similar(artist, title, api_key, max(batch * 4, 20))
+        if not similar:
+            logger.info("radio: no similar tracks found for %s - %s", artist, title)
+            return
+
+        # What's already queued or recently played, to avoid repeats.
+        try:
+            existing_uris = set(
+                t.track.uri for t in (core.tracklist.get_tl_tracks().get() or [])
+            )
+        except Exception:
+            existing_uris = set()
+        with _history_lock:
+            recent_keys = set(
+                _norm_key("", h.get("name", "")) for h in list(_history)[-40:]
+            )
+
+        added = 0
+        first_added = None
+        for sim_artist, sim_title in similar:
+            if added >= batch:
+                break
+            query = (sim_artist + " " + sim_title).strip()
+            if not query:
+                continue
+            try:
+                results = core.library.search(
+                    query={"any": [query]}, uris=["youtube:"]
+                ).get()
+            except Exception as e:
+                logger.warning("radio: search failed for %r: %r", query, e)
+                continue
+            uri = None
+            for res in results or []:
+                for tr in (getattr(res, "tracks", None) or []):
+                    if getattr(tr, "uri", None):
+                        uri = tr.uri
+                        break
+                if uri:
+                    break
+            if not uri or uri in existing_uris:
+                continue
+            if _norm_key("", sim_title) in recent_keys:
+                continue
+            try:
+                new_tls = core.tracklist.add(uris=[uri]).get()
+                existing_uris.add(uri)
+                added += 1
+                if first_added is None and new_tls:
+                    first_added = new_tls[0]
+                logger.info("radio: added %s - %s [%s]", sim_artist, sim_title, uri)
+            except Exception as e:
+                logger.warning("radio: add failed for %s: %r", uri, e)
+
+        # If playback had already stopped (e.g. the last song ended before this
+        # refill finished), start the first track we just added so radio keeps
+        # the music going without a gap.
+        if added and first_added is not None:
+            try:
+                if core.playback.get_state().get() == "stopped":
+                    core.playback.play(tlid=first_added.tlid)
+                    logger.info("radio: playback was stopped, starting %s", first_added.track.uri)
+            except Exception as e:
+                logger.warning("radio: could not resume playback: %r", e)
+
+        logger.info("radio: refill complete, added %d track(s)", added)
+    finally:
+        with _radio_lock:
+            _radio_busy = False
+
+
+def _maybe_refill_radio(core, config, force=False):
+    """If radio is on (and, unless forced, the queue is running low), kick a
+    background refill. Guarded so only one refill runs at a time."""
+    global _radio_busy
+    with _radio_lock:
+        if not _radio["on"]:
+            return
+        if _radio_busy:
+            return
+    api_key = (_conf(config, "lastfm_api_key") or "").strip()
+    if not api_key:
+        return
+    try:
+        if not force:
+            idx = core.tracklist.index().get()
+            length = core.tracklist.get_length().get() or 0
+            cur = -1 if idx is None else idx
+            upcoming = length - (cur + 1)
+            if upcoming >= int(_conf(config, "radio_min_queue")):
+                return
+    except Exception:
+        pass
+    with _radio_lock:
+        if _radio_busy:
+            return
+        _radio_busy = True
+    batch = int(_conf(config, "radio_batch"))
+    threading.Thread(
+        target=_refill_radio, args=(core, api_key, batch), daemon=True
+    ).start()
 
 
 class VoteRequestHandler(tornado.web.RequestHandler):
@@ -662,6 +879,46 @@ class HistoryHandler(tornado.web.RequestHandler):
         self.write(json.dumps({"count": count, "last": last}))
 
 
+class RadioHandler(tornado.web.RequestHandler):
+    """Shared, party-wide radio toggle. GET reports state; POST {"on": bool}
+    sets it. Turning it on kicks an immediate refill of similar songs."""
+
+    def initialize(self, core, config):
+        self.core = core
+        self.config = config
+
+    def _has_key(self):
+        return bool((_conf(self.config, "lastfm_api_key") or "").strip())
+
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        with _radio_lock:
+            on = _radio["on"]
+        self.write(json.dumps({"on": on, "available": self._has_key()}))
+
+    def post(self):
+        try:
+            body = json.loads(self.request.body.decode() or "{}")
+        except Exception:
+            body = {}
+        want_on = bool(body.get("on"))
+        if want_on and not self._has_key():
+            self.set_status(409)
+            self.write(json.dumps({"error": "Radio needs a Last.fm API key (set "
+                                   "lastfm_api_key in the [netjammer] config).",
+                                   "on": False, "available": False}))
+            return
+        with _radio_lock:
+            _radio["on"] = want_on
+        logger.info("radio: turned %s", "on" if want_on else "off")
+        if want_on:
+            # Fill immediately (force) so music keeps going without waiting for
+            # the next track boundary.
+            _maybe_refill_radio(self.core, self.config, force=True)
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"on": want_on, "available": self._has_key()}))
+
+
 class PreviousHandler(tornado.web.RequestHandler):
     """The "back" button. With consume off the previous track is still in the
     tracklist, so this is just Mopidy's native previous() -- no re-insertion."""
@@ -744,6 +1001,9 @@ class LogsHandler(tornado.web.RequestHandler):
             lines.append("snapshot error: %r" % e)
         with _history_lock:
             lines.append("history depth  : %d" % len(_history))
+        with _radio_lock:
+            lines.append("radio          : %s (busy=%s)" % (
+                "on" if _radio["on"] else "off", _radio_busy))
         return lines
 
     def get(self):
@@ -824,6 +1084,7 @@ def party_factory(config, core):
         ("/errors", ErrorsHandler, {"data": data}),
         ("/history", HistoryHandler, {}),
         ("/previous", PreviousHandler, {"core": core}),
+        ("/radio", RadioHandler, {"core": core, "config": config}),
         ("/clientlog", ClientLogHandler, {}),
         ("/logs", LogsHandler, {"core": core}),
     ]
@@ -851,6 +1112,9 @@ class Extension(ext.Extension):
         schema["default_volume"] = config.Integer(minimum=0, maximum=100, optional=True)
         schema["source_prio"] = config.String(optional=True)
         schema["source_blacklist"] = config.String(optional=True)
+        schema["lastfm_api_key"] = config.Secret(optional=True)
+        schema["radio_min_queue"] = config.Integer(minimum=1, optional=True)
+        schema["radio_batch"] = config.Integer(minimum=1, optional=True)
         return schema
 
     def setup(self, registry):

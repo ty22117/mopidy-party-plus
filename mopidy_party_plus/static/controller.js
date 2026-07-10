@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-var NJ_FRONTEND_VERSION = '1.9.5-NETJAMMER (light-mode background)';
+var NJ_FRONTEND_VERSION = '1.10.0-NETJAMMER (radio mode)';
 console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
@@ -111,6 +111,8 @@ angular.module('partyApp', [])
     $scope.isSortingQueue = false; // true while dragging a queue item (pauses queue refresh so it isn't clobbered mid-drag)
     $scope.albumArt = null;       // image URL for the currently-playing track
     $scope.historyCount = 0;      // how many previously-played tracks the server has (for the back button)
+    $scope.radioOn = false;       // radio mode (auto-queue similar songs) — party-wide
+    $scope.radioAvailable = false; // whether a Last.fm API key is configured
 
     // Light/dark theme, toggled in the UI and remembered per device. Defaults to
     // dark. The <head> also applies this before first paint to avoid a flash.
@@ -274,6 +276,7 @@ angular.module('partyApp', [])
           $scope.search();
           $scope.refreshQueue();
           $scope.refreshHistory();
+          $scope.refreshRadio();
           njlog('INFO', 'client: ready (state=' + $scope.currentState.state +
             ', tracklist=' + $scope.currentState.length +
             ', volume=' + $scope.currentState.volume + ')');
@@ -316,6 +319,7 @@ angular.module('partyApp', [])
       $scope.fetchAlbumArt(event.tl_track.track);
       $scope.refreshQueue();
       $scope.refreshHistory();
+      $scope.refreshRadio();
     });
 
     mopidy.on('event:trackPlaybackEnded', function () {
@@ -341,6 +345,7 @@ angular.module('partyApp', [])
       });
       $scope.refreshQueue();
       $scope.refreshHistory();
+      $scope.refreshRadio();
     });
 
     $scope.printDuration = function (track) {
@@ -707,6 +712,37 @@ angular.module('partyApp', [])
       $http.get('/netjammer/history').then(function (resp) {
         $scope.historyCount = (resp.data && resp.data.count) || 0;
       }, function () { /* ignore */ });
+    };
+
+    // Radio mode is a shared, party-wide setting; fetch it so every screen
+    // reflects the same on/off state.
+    $scope.refreshRadio = function () {
+      $http.get('/netjammer/radio').then(function (resp) {
+        var d = resp.data || {};
+        $scope.radioOn = !!d.on;
+        $scope.radioAvailable = !!d.available;
+      }, function () { /* ignore */ });
+    };
+
+    $scope.toggleRadio = function () {
+      var want = !$scope.radioOn;
+      njlog('INFO', 'action: radio -> ' + (want ? 'on' : 'off'));
+      $http.post('/netjammer/radio', JSON.stringify({ on: want }), {
+        headers: { 'Content-Type': 'application/json' }
+      }).then(function (resp) {
+        var d = resp.data || {};
+        $scope.radioOn = !!d.on;
+        $scope.radioAvailable = !!d.available;
+        if (want) {
+          $scope.message = ['success', 'Radio on — similar songs will keep the party going'];
+        } else {
+          $scope.message = ['success', 'Radio off'];
+        }
+      }, function (resp) {
+        var d = (resp && resp.data) || {};
+        $scope.radioAvailable = !!d.available;
+        $scope.message = ['error', d.error || 'Could not toggle radio'];
+      });
     };
 
     // Flush pending client logs to the server, then download the merged

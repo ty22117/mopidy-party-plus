@@ -98,6 +98,16 @@
           {% end %}
         </div>
 
+        <!-- Radio mode: auto-queue similar songs when the queue runs low -->
+        <div style="margin-top:12px; display:flex; justify-content:center;">
+          <button type="button" class="btn btn-sm" ng-click="toggleRadio()" ng-disabled="!ready || !radioAvailable"
+                  ng-class="{'btn-info active': radioOn, 'btn-secondary': !radioOn}"
+                  title="{{! radioAvailable ? 'Radio: keep the party going with similar songs' : 'Set lastfm_api_key in the config to enable Radio' }}">
+            <span class="fas fa-tower-broadcast"></span>
+            Radio {{! radioOn ? 'on' : 'off' }}
+          </button>
+        </div>
+
         <!-- Volume Control -->
         <div style="display:flex; align-items:center; gap:10px; margin-top:14px; width:100%;">
           <span class="fas fa-volume-low"></span>
