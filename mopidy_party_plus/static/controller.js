@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-var NJ_FRONTEND_VERSION = '1.10.3-NETJAMMER (loop guard + cache-bust)';
+var NJ_FRONTEND_VERSION = '1.10.4-NETJAMMER (auto-reload stale tabs)';
 console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
@@ -231,7 +231,34 @@ angular.module('partyApp', [])
       'callingConvention': 'by-position-or-by-name'
     });
 
+    // Auto-update stale tabs. On every (re)connect -- including the reconnect
+    // that follows a Mopidy restart after a deploy -- ask the server which
+    // version it's running. If this page's cached JS is older, reload so the
+    // whole party converges onto the new version (stops old clients from e.g.
+    // looping the queue). Guarded via sessionStorage so a persistent mismatch
+    // can't turn into a reload loop.
+    function njCoreVersion(v) {
+      var m = /(\d+\.\d+\.\d+)/.exec(String(v || ''));
+      return m ? m[1] : String(v || '');
+    }
+    function checkVersionAndMaybeReload() {
+      $http.get('/netjammer/version').then(function (resp) {
+        var server = resp && resp.data && resp.data.version;
+        if (!server) return;
+        var mine = njCoreVersion(NJ_FRONTEND_VERSION);
+        var theirs = njCoreVersion(server);
+        if (mine === theirs) return;
+        var already = null;
+        try { already = sessionStorage.getItem('njReloadedFor'); } catch (e) {}
+        if (already === theirs) return;  // already tried reloading for this version
+        try { sessionStorage.setItem('njReloadedFor', theirs); } catch (e) {}
+        njlog('INFO', 'client: outdated (' + mine + ' vs server ' + theirs + '); reloading');
+        location.reload();
+      }, function () { /* offline / server busy -- try again next connect */ });
+    }
+
     mopidy.on('state:online', function () {
+      checkVersionAndMaybeReload();
       mopidy.playback
         .getCurrentTrack()
         .then(function (track) {

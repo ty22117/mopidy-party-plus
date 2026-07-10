@@ -14,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.10.3-NETJAMMER"
+__version__ = "1.10.4-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -839,6 +839,15 @@ class IndexHandler(tornado.web.RequestHandler):
         return self.render("static/index.html", **self.__dict)
 
 
+class VersionHandler(tornado.web.RequestHandler):
+    """Reports the running backend version so clients can detect when their
+    cached JS is stale (after a deploy) and reload themselves."""
+
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"version": __version__}))
+
+
 class ConfigHandler(tornado.web.RequestHandler):
 
     def initialize(self, config):
@@ -1113,6 +1122,7 @@ def party_factory(config, core):
         ("/vote", VoteRequestHandler, {"core": core, "data": data, "config": config}),
         ("/add", AddRequestHandler, {"core": core, "data": data, "config": config}),
         ("/playlist", PlaylistHandler, {"core": core, "data": data, "config": config}),
+        ("/version", VersionHandler, {}),
         ("/config", ConfigHandler, {"config": config}),
         ("/errors", ErrorsHandler, {"data": data}),
         ("/history", HistoryHandler, {}),
