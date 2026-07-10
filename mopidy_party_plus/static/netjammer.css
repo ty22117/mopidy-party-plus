@@ -44,10 +44,11 @@ body {
   flex-direction: column;
 }
 
-/* Full-screen background illustration, held fixed behind everything. A dark
-   gradient overlay keeps it subdued so the cards/controls stay readable.
-   position:fixed keeps it out of the flex flow and works on mobile (unlike
-   background-attachment: fixed). */
+/* Full-screen background illustration, held fixed behind everything. A gradient
+   overlay keeps it subdued so the cards/controls stay readable. position:fixed
+   keeps it out of the flex flow and works on mobile (unlike
+   background-attachment: fixed). The image is per-theme: light.png in light
+   mode, background.png (dark) in dark mode. */
 body::before {
   content: "";
   position: fixed;
@@ -56,6 +57,14 @@ body::before {
   bottom: 0;
   left: 0;
   z-index: -1;
+  /* Light theme (default): the light illustration with a soft light veil. */
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.4)),
+    url("/netjammer/light.png") center center / cover no-repeat;
+}
+
+/* Dark theme: the dark illustration with a dark veil. */
+:root.theme-dark body::before {
   background:
     linear-gradient(rgba(8, 10, 14, 0.32), rgba(8, 10, 14, 0.62)),
     url("/netjammer/background.png") center center / cover no-repeat;

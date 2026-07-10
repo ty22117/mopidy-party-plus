@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-var NJ_FRONTEND_VERSION = '1.9.4-NETJAMMER (log queue removes)';
+var NJ_FRONTEND_VERSION = '1.9.5-NETJAMMER (light-mode background)';
 console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
