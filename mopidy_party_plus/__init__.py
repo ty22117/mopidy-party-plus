@@ -14,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.10.1-NETJAMMER"
+__version__ = "1.10.2-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -980,11 +980,22 @@ class LogsHandler(tornado.web.RequestHandler):
     """Return the merged server+client diagnostics log. ?format=json for JSON,
     ?download=1 to download as a .txt file. Includes a live playback snapshot."""
 
-    def initialize(self, core):
+    def initialize(self, core, config):
         self.core = core
+        self.config = config
 
     def _snapshot(self):
         lines = []
+        # Effective config values, so we can tell whether the config file the user
+        # edited is actually the one Mopidy loaded (compare against what they set).
+        try:
+            key = (_conf(self.config, "lastfm_api_key") or "").strip()
+            lines.append("config effective: style=%s votes_to_skip=%s lastfm_api_key=%s"
+                         % (_conf(self.config, "style"),
+                            _conf(self.config, "votes_to_skip"),
+                            "SET" if key else "(empty)"))
+        except Exception as e:
+            lines.append("config read error: %r" % e)
         try:
             state = self.core.playback.get_state().get()
             cur = self.core.playback.get_current_track().get()
@@ -1092,7 +1103,7 @@ def party_factory(config, core):
         ("/previous", PreviousHandler, {"core": core}),
         ("/radio", RadioHandler, {"core": core, "config": config}),
         ("/clientlog", ClientLogHandler, {}),
-        ("/logs", LogsHandler, {"core": core}),
+        ("/logs", LogsHandler, {"core": core, "config": config}),
     ]
 
 
