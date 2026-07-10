@@ -14,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.10.0-NETJAMMER"
+__version__ = "1.10.1-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -114,6 +114,12 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
             logger.info("startup: default volume set to %s%%", vol)
         except Exception as e:
             logger.warning("startup: could not set default volume: %r", e)
+        # Report whether the Last.fm key was loaded (drives whether Radio is usable).
+        key = (_conf(self.config, "lastfm_api_key") or "").strip()
+        logger.info(
+            "startup: last.fm api key %s",
+            "configured (radio available)" if key else "NOT configured (radio disabled)",
+        )
 
     def track_playback_started(self, tl_track):
         track = getattr(tl_track, "track", None)

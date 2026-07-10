@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-var NJ_FRONTEND_VERSION = '1.10.0-NETJAMMER (radio mode)';
+var NJ_FRONTEND_VERSION = '1.10.1-NETJAMMER (radio key diag)';
 console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
