@@ -12,7 +12,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.9.3-NETJAMMER"
+__version__ = "1.9.4-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client

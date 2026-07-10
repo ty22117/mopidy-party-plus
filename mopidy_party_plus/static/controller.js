@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-var NJ_FRONTEND_VERSION = '1.9.3-NETJAMMER (server end-of-queue guard)';
+var NJ_FRONTEND_VERSION = '1.9.4-NETJAMMER (log queue removes)';
 console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
@@ -641,6 +641,7 @@ angular.module('partyApp', [])
       if (!item || item.tlid === undefined || item.tlid === null) {
         return;
       }
+      njlog('INFO', 'action: remove from queue tlid=' + item.tlid);
       mopidy.tracklist.remove([{ tlid: [item.tlid] }]).then(function () {
         $scope.refreshQueue();
       });
@@ -653,6 +654,7 @@ angular.module('partyApp', [])
       if (!tlids.length) {
         return;
       }
+      njlog('INFO', 'action: clear queue (' + tlids.length + ' tracks)');
       mopidy.tracklist.remove([{ tlid: tlids }]).then(function () {
         $scope.message = ['success', 'Cleared the queue'];
         $scope.$apply();
