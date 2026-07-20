@@ -285,6 +285,7 @@ _DEFAULTS = {
     "lastfm_api_key": "",
     "radio_min_queue": 2,
     "radio_batch": 5,
+    "radio_seed_count": 3,
 }
 
 
@@ -384,31 +385,96 @@ def _norm_key(artist, title):
     return re.sub(r"\s+", " ", ("%s %s" % (artist, title)).strip().lower())
 
 
-def _refill_radio(core, api_key, batch, seed_track=None):
+def _recent_seed_tracks(core, count):
+    """Return up to `count` most-recently-played tracks (the current track plus
+    the ones just before it), newest first, as Mopidy Track objects. Because
+    consume is off, the tracklist keeps already-played songs before the current
+    index, so this reads real Track objects (with artist metadata) rather than
+    the name-only history list."""
+    if count <= 1:
+        return None  # signal: caller falls back to single current-track seeding
+    try:
+        tls = core.tracklist.get_tl_tracks().get() or []
+        idx = core.tracklist.index().get()
+    except Exception:
+        return None
+    if not tls:
+        return None
+    if idx is None:
+        idx = len(tls) - 1  # nothing "current"; use the tail of the tracklist
+    played = [t.track for t in tls[: idx + 1] if getattr(t, "track", None)]
+    played.reverse()  # newest first
+    return played[:count]
+
+
+def _combined_similar(seeds, api_key, limit):
+    """Query Last.fm for each recent seed track and merge the results, favouring
+    candidates that are similar to SEVERAL recent songs (the common thread) and
+    weighting more-recent seeds higher. Returns a ranked list of (artist, title)
+    plus the set of seed keys to exclude."""
+    scores = {}  # norm_key -> [score, (artist, title)]
+    seed_keys = set()
+    n = len(seeds)
+    for i, s in enumerate(seeds):
+        artist, title = _seed_from_track(s)
+        if not artist and not title:
+            continue
+        seed_keys.add(_norm_key(artist, title))
+        recency_w = n - i  # newest seed weighted highest
+        sim = _lastfm_similar(artist, title, api_key, limit)
+        logger.info("radio: seed %s - %s -> %d similar", artist or "?", title or "?", len(sim))
+        for rank, (ar, nm) in enumerate(sim):
+            k = _norm_key(ar, nm)
+            pts = recency_w * (1.0 / (1 + rank))  # higher Last.fm rank scores more
+            if k in scores:
+                scores[k][0] += pts
+            else:
+                scores[k] = [pts, (ar, nm)]
+    ranked = [v[1] for v in sorted(scores.values(), key=lambda x: -x[0])]
+    return ranked, seed_keys
+
+
+def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
     """Fetch songs similar to the seed (default: currently playing), resolve each
     to a YouTube track via library.search, and append playable ones. Runs in a
     background thread (never call from the actor's event loop directly)."""
     global _radio_busy
     try:
-        seed = seed_track
-        if seed is None:
-            try:
-                seed = core.playback.get_current_track().get()
-            except Exception:
-                seed = None
-        if seed is None:
-            logger.info("radio: no seed track; nothing to refill")
-            return
+        limit = max(batch * 4, 20)
+        seeds = None
+        if seed_track is None:
+            seeds = _recent_seed_tracks(core, seed_count)
+        if seeds:
+            # Multi-seed path: blend the last few played tracks so the radio
+            # stays anchored to the recent vibe instead of drifting off one song.
+            names = ", ".join(
+                "%s - %s" % (a or "?", t or "?")
+                for a, t in (_seed_from_track(s) for s in seeds)
+            )
+            logger.info("radio: seeding from last %d track(s): %s", len(seeds), names)
+            similar, seed_keys = _combined_similar(seeds, api_key, limit)
+        else:
+            # Single-seed path: an explicit seed_track, radio_seed_count <= 1, or
+            # the tracklist wasn't readable -- seed from the current track only.
+            seed = seed_track
+            if seed is None:
+                try:
+                    seed = core.playback.get_current_track().get()
+                except Exception:
+                    seed = None
+            if seed is None:
+                logger.info("radio: no seed track; nothing to refill")
+                return
+            artist, title = _seed_from_track(seed)
+            if not title and not artist:
+                logger.info("radio: seed has no usable artist/title")
+                return
+            logger.info("radio: seeding from %s - %s", artist or "?", title or "?")
+            similar = _lastfm_similar(artist, title, api_key, limit)
+            seed_keys = {_norm_key(artist, title)}
 
-        artist, title = _seed_from_track(seed)
-        if not title and not artist:
-            logger.info("radio: seed has no usable artist/title")
-            return
-        logger.info("radio: seeding from %s - %s", artist or "?", title or "?")
-
-        similar = _lastfm_similar(artist, title, api_key, max(batch * 4, 20))
         if not similar:
-            logger.info("radio: no similar tracks found for %s - %s", artist, title)
+            logger.info("radio: no similar tracks found")
             return
 
         # What's already queued or recently played, to avoid repeats.
@@ -428,6 +494,8 @@ def _refill_radio(core, api_key, batch, seed_track=None):
         for sim_artist, sim_title in similar:
             if added >= batch:
                 break
+            if _norm_key(sim_artist, sim_title) in seed_keys:
+                continue  # don't re-suggest one of the seed songs
             query = (sim_artist + " " + sim_title).strip()
             if not query:
                 continue
@@ -504,8 +572,9 @@ def _maybe_refill_radio(core, config, force=False):
             return
         _radio_busy = True
     batch = int(_conf(config, "radio_batch"))
+    seed_count = int(_conf(config, "radio_seed_count"))
     threading.Thread(
-        target=_refill_radio, args=(core, api_key, batch), daemon=True
+        target=_refill_radio, args=(core, api_key, batch, seed_count), daemon=True
     ).start()
 
 
@@ -1046,6 +1115,13 @@ class LogsHandler(tornado.web.RequestHandler):
         with _radio_lock:
             lines.append("radio          : %s (busy=%s)" % (
                 "on" if _radio["on"] else "off", _radio_busy))
+        try:
+            lines.append("radio config   : min_queue=%s batch=%s seed_count=%s" % (
+                _conf(self.config, "radio_min_queue"),
+                _conf(self.config, "radio_batch"),
+                _conf(self.config, "radio_seed_count")))
+        except Exception as e:
+            lines.append("radio config read error: %r" % e)
         return lines
 
     def get(self):
@@ -1158,6 +1234,7 @@ class Extension(ext.Extension):
         schema["lastfm_api_key"] = config.Secret(optional=True)
         schema["radio_min_queue"] = config.Integer(minimum=1, optional=True)
         schema["radio_batch"] = config.Integer(minimum=1, optional=True)
+        schema["radio_seed_count"] = config.Integer(minimum=1, optional=True)
         return schema
 
     def setup(self, registry):
