@@ -508,16 +508,28 @@ angular.module('partyApp', [])
         }
       }
       $scope.tracks.push(track);
-      mopidy.tracklist.filter([{ 'uri': [track.uri] }]).done(
-        function (matches) {
-          if (matches.length) {
+      // Grey out the row only if this track is still UPCOMING in the queue, so a
+      // second tap can't queue the same pending song twice. Because consume is
+      // off, already-played songs stay in the tracklist BEHIND the playhead --
+      // those must stay re-queueable (even days into the session). So we compare
+      // against the current playback position using the same "position > idx"
+      // rule refreshQueue uses, instead of plain tracklist membership (which kept
+      // played songs disabled forever).
+      mopidy.tracklist.getTlTracks().then(function (tlTracks) {
+        mopidy.tracklist.index().then(function (currentIndex) {
+          var idx = (currentIndex === null || currentIndex === undefined) ? -1 : currentIndex;
+          var upcoming = (tlTracks || []).some(function (tl, i) {
+            return tl.track && tl.track.uri === track.uri && i > idx;
+          });
+          if (upcoming) {
             for (var i = 0; i < $scope.tracks.length; i++) {
-              if ($scope.tracks[i].uri == matches[0].track.uri)
+              if ($scope.tracks[i].uri === track.uri)
                 $scope.tracks[i].disabled = true;
             }
           }
           $scope.$apply();
         });
+      });
     };
 
     $scope.addTrack = function (track) {
