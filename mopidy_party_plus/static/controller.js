@@ -380,6 +380,48 @@ angular.module('partyApp', [])
       $scope.refreshRadio();
     });
 
+    // Live shared-state channel: radio on/off and the Radio Blocklist update on
+    // every screen without a refresh. Mopidy's own socket only carries core
+    // events, so NETJammer runs its own tiny WebSocket at /netjammer/events.
+    function applyBlocklistEntries(entries) {
+      var map = {};
+      (entries || []).forEach(function (e) {
+        if (e && e.uri) map[e.uri] = true;
+      });
+      $scope.radioBlock = map;
+    }
+    function connectEventSocket() {
+      var proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+      var url = proto + '//' + window.location.host + '/netjammer/events';
+      var ws;
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        setTimeout(connectEventSocket, 3000);
+        return;
+      }
+      ws.onmessage = function (ev) {
+        var data;
+        try { data = JSON.parse(ev.data); } catch (e) { return; }
+        $scope.$apply(function () {
+          if (data.type === 'snapshot') {
+            if (typeof data.radio === 'boolean') $scope.radioOn = data.radio;
+            applyBlocklistEntries(data.blocklist);
+          } else if (data.type === 'radio') {
+            if (typeof data.on === 'boolean') $scope.radioOn = data.on;
+          } else if (data.type === 'blocklist') {
+            applyBlocklistEntries(data.entries);
+          }
+        });
+        // A blocklist change may have pruned the queue; refresh it. (Mopidy's
+        // tracklistChanged also covers this, but this is immediate.)
+        if (data.type === 'blocklist') $scope.refreshQueue();
+      };
+      ws.onclose = function () { setTimeout(connectEventSocket, 3000); };
+      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    }
+    connectEventSocket();
+
     $scope.printDuration = function (track) {
       if (!track.length)
         return '';
