@@ -14,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.10.5-NETJAMMER"
+__version__ = "1.10.6-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -969,14 +969,20 @@ class ErrorsHandler(tornado.web.RequestHandler):
 
 
 class HistoryHandler(tornado.web.RequestHandler):
-    """Report how many previously-played tracks are available to go back to."""
+    """Report previously-played tracks: a count/last for the back button, plus the
+    full most-recent-first list for the History view."""
 
     def get(self):
         with _history_lock:
             count = len(_history)
             last = _history[-1]["name"] if _history else None
+            # Most-recent-first copy for the History drawer (already capped at 200).
+            entries = [
+                {"uri": h.get("uri"), "name": h.get("name")}
+                for h in reversed(_history)
+            ]
         self.set_header("Content-Type", "application/json")
-        self.write(json.dumps({"count": count, "last": last}))
+        self.write(json.dumps({"count": count, "last": last, "entries": entries}))
 
 
 class RadioHandler(tornado.web.RequestHandler):

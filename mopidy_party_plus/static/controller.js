@@ -108,9 +108,11 @@ angular.module('partyApp', [])
     $scope.queue = [];            // upcoming/current tracks in the tracklist
     $scope.showQueue = false;     // queue drawer open/closed
     $scope.showSearch = false;    // search drawer open/closed
+    $scope.showHistory = false;   // history drawer open/closed
     $scope.isSortingQueue = false; // true while dragging a queue item (pauses queue refresh so it isn't clobbered mid-drag)
     $scope.albumArt = null;       // image URL for the currently-playing track
     $scope.historyCount = 0;      // how many previously-played tracks the server has (for the back button)
+    $scope.history = [];          // previously-played tracks, most-recent-first (for the history view)
     $scope.radioOn = false;       // radio mode (auto-queue similar songs) — party-wide
     $scope.radioAvailable = false; // whether a Last.fm API key is configured
 
@@ -637,6 +639,7 @@ angular.module('partyApp', [])
       $scope.showQueue = !$scope.showQueue;
       if ($scope.showQueue) {
         $scope.showSearch = false; // only one drawer open at a time
+        $scope.showHistory = false;
         $scope.refreshQueue();
       }
     };
@@ -645,12 +648,23 @@ angular.module('partyApp', [])
       $scope.showSearch = !$scope.showSearch;
       if ($scope.showSearch) {
         $scope.showQueue = false; // only one drawer open at a time
+        $scope.showHistory = false;
+      }
+    };
+
+    $scope.toggleHistory = function () {
+      $scope.showHistory = !$scope.showHistory;
+      if ($scope.showHistory) {
+        $scope.showQueue = false; // only one drawer open at a time
+        $scope.showSearch = false;
+        $scope.refreshHistory();
       }
     };
 
     $scope.closeDrawers = function () {
       $scope.showQueue = false;
       $scope.showSearch = false;
+      $scope.showHistory = false;
     };
 
     // Look up album art for a track via Mopidy's library.getImages and pick the
@@ -750,7 +764,31 @@ angular.module('partyApp', [])
     $scope.refreshHistory = function () {
       $http.get('/netjammer/history').then(function (resp) {
         $scope.historyCount = (resp.data && resp.data.count) || 0;
+        $scope.history = (resp.data && resp.data.entries) || [];
       }, function () { /* ignore */ });
+    };
+
+    // Queue a previously-played track again from the History view. Reuses the
+    // same /add endpoint as search results (played songs are re-queueable).
+    $scope.requeueFromHistory = function (item) {
+      if (!item || !item.uri) {
+        return;
+      }
+      njlog('INFO', 'action: requeue ' + item.uri);
+      $http.post('/netjammer/add', item.uri).then(
+        function success() {
+          $scope.message = ['success', 'Queued: ' + item.name];
+          $scope.refreshQueue();
+        },
+        function error(response) {
+          njlog('ERROR', 'requeue failed (' + response.status + '): ' + item.uri + ' — ' + response.data);
+          if (response.status === 409) {
+            $scope.message = ['error', '' + response.data];
+          } else {
+            $scope.message = ['error', 'Code ' + response.status + ' - ' + response.data];
+          }
+        }
+      );
     };
 
     // Radio mode is a shared, party-wide setting; fetch it so every screen
