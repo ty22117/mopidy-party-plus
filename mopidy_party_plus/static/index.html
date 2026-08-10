@@ -37,14 +37,16 @@
   <body ng-controller="MainController">
     <!-- ===== Top bar ===== -->
     <div class="topbar">
-      <button type="button" class="btn btn-info" ng-click="toggleQueue()" ng-disabled="!ready" ng-class="{'active': showQueue}">
-        <span class="fas fa-list-ol"></span> Queue
-        <span class="badge bg-dark" ng-if="queue.length">{{! queue.length }}</span>
-      </button>
-      <button type="button" class="btn btn-info" ng-click="toggleHistory()" ng-disabled="!ready" ng-class="{'active': showHistory}">
-        <span class="fas fa-clock-rotate-left"></span> History
-        <span class="badge bg-dark" ng-if="historyCount">{{! historyCount }}</span>
-      </button>
+      <span class="topbar-left">
+        <button type="button" class="btn btn-info" ng-click="toggleQueue()" ng-disabled="!ready" ng-class="{'active': showQueue}">
+          <span class="fas fa-list-ol"></span> Queue
+          <span class="badge bg-dark" ng-if="queue.length">{{! queue.length }}</span>
+        </button>
+        <button type="button" class="btn btn-info" ng-click="toggleHistory()" ng-disabled="!ready" ng-class="{'active': showHistory}">
+          <span class="fas fa-clock-rotate-left"></span> History
+          <span class="badge bg-dark" ng-if="historyCount">{{! historyCount }}</span>
+        </button>
+      </span>
       <strong class="topbar-title"><span class="fas fa-compact-disc"></span> NETJammer</strong>
       <span class="topbar-right">
         <button type="button" class="btn" ng-click="toggleTheme()" title="Toggle light/dark theme">

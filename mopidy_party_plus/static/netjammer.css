@@ -82,9 +82,9 @@ body::before {
 
 /* ===== Top bar (navy navbar in both themes) ===== */
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   padding: 12px 16px;
   background: var(--navy);
@@ -95,6 +95,13 @@ body::before {
   z-index: 1030;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  min-width: 0;
+}
 .topbar-title {
   font-size: 1.25em;
   font-weight: 700;
@@ -103,11 +110,15 @@ body::before {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-self: center;
+  white-space: nowrap;
 }
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-self: end;
+  min-width: 0;
 }
 .topbar .btn {
   background: transparent;
