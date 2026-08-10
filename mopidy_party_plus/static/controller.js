@@ -380,10 +380,52 @@ angular.module('partyApp', [])
       $scope.refreshRadio();
     });
 
-    // Radio on/off and the Radio Blocklist are party-wide, so poll them on a
-    // short interval (like the errors poll and the position slider) to keep every
-    // screen in sync over plain HTTP -- no WebSocket, works through the proxy.
+    // Radio on/off and the Radio Blocklist are party-wide. A WebSocket pushes
+    // changes instantly to every screen; a slow poll stays as a fallback in case
+    // the socket can't connect (e.g. a proxy that won't upgrade it).
+    function applyBlocklistEntries(entries) {
+      var map = {};
+      (entries || []).forEach(function (e) { if (e && e.uri) map[e.uri] = true; });
+      $scope.radioBlock = map;
+    }
+    $scope.eventSocketUp = false; // true while the live socket is connected
+    function connectEventSocket() {
+      var proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+      var url = proto + '//' + window.location.host + '/netjammer/events';
+      var ws;
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        setTimeout(connectEventSocket, 3000);
+        return;
+      }
+      ws.onopen = function () { $scope.eventSocketUp = true; };
+      ws.onmessage = function (ev) {
+        var data;
+        try { data = JSON.parse(ev.data); } catch (e) { return; }
+        $scope.$apply(function () {
+          if (data.type === 'snapshot') {
+            if (typeof data.radio === 'boolean') $scope.radioOn = data.radio;
+            applyBlocklistEntries(data.blocklist);
+          } else if (data.type === 'radio') {
+            if (typeof data.on === 'boolean') $scope.radioOn = data.on;
+          } else if (data.type === 'blocklist') {
+            applyBlocklistEntries(data.entries);
+          }
+        });
+        // A blocklist change may have pruned the queue; refresh it.
+        if (data.type === 'blocklist') $scope.refreshQueue();
+      };
+      ws.onclose = function () { $scope.eventSocketUp = false; setTimeout(connectEventSocket, 3000); };
+      ws.onerror = function () { $scope.eventSocketUp = false; try { ws.close(); } catch (e) {} };
+    }
+    connectEventSocket();
+
+    // Fallback poll: only runs while the socket is NOT connected, so it never
+    // regresses below the old 3s behavior if the proxy won't upgrade the socket,
+    // and adds no redundant traffic when the socket is doing its job.
     $interval(function () {
+      if ($scope.eventSocketUp) return;
       $scope.refreshRadio();
       $scope.refreshRadioBlock();
     }, 3000);

@@ -11,10 +11,12 @@ from collections import deque
 
 import pykka
 import tornado.web
+import tornado.websocket
+import tornado.ioloop
 
 from mopidy import config, core, ext
 
-__version__ = "1.11.2-NETJAMMER"
+__version__ = "1.11.3-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -1044,6 +1046,63 @@ class HistoryHandler(tornado.web.RequestHandler):
         self.write(json.dumps({"count": count, "last": last, "entries": entries}))
 
 
+class EventSocketHandler(tornado.websocket.WebSocketHandler):
+    """A tiny party-wide event channel. Clients open this WebSocket and the server
+    pushes shared-state changes (radio on/off, blocklist updates) so every screen
+    updates instantly. Mopidy's own WebSocket only carries core events, so
+    NETJammer-specific state needs its own channel. Clients also poll as a fallback
+    in case this socket can't connect (e.g. a proxy that won't upgrade it)."""
+
+    _clients = set()
+    _lock = threading.Lock()
+
+    def check_origin(self, origin):
+        return True  # LAN party app served to phones on the same host; allow any
+
+    def open(self):
+        self._io = tornado.ioloop.IOLoop.current()
+        with EventSocketHandler._lock:
+            EventSocketHandler._clients.add(self)
+        # Send a snapshot so a freshly-connected client is immediately in sync.
+        try:
+            with _radio_lock:
+                on = _radio["on"]
+            with _radio_meta_lock:
+                entries = [{"uri": u, "name": n} for u, n in _radio_blocklist.items()]
+            self.write_message(json.dumps(
+                {"type": "snapshot", "radio": on, "blocklist": entries}))
+        except Exception:
+            pass
+
+    def on_close(self):
+        with EventSocketHandler._lock:
+            EventSocketHandler._clients.discard(self)
+
+    def on_message(self, message):
+        pass  # clients only listen; ignore anything sent up
+
+    def _send(self, msg):
+        try:
+            self.write_message(msg)
+        except Exception:
+            with EventSocketHandler._lock:
+                EventSocketHandler._clients.discard(self)
+
+    @classmethod
+    def broadcast(cls, payload):
+        """Push a JSON payload to every connected client. Safe to call from any
+        thread: each send is scheduled on its connection's IOLoop."""
+        msg = json.dumps(payload)
+        with cls._lock:
+            clients = list(cls._clients)
+        for c in clients:
+            try:
+                c._io.add_callback(c._send, msg)
+            except Exception:
+                with cls._lock:
+                    cls._clients.discard(c)
+
+
 class RadioBlockHandler(tornado.web.RequestHandler):
     """The Radio Blocklist: songs radio must never seed from. GET returns the
     current list; POST {uri, name, on} adds (on=true, default) or removes it.
@@ -1084,9 +1143,13 @@ class RadioBlockHandler(tornado.web.RequestHandler):
             with _radio_meta_lock:
                 _radio_blocklist.pop(uri, None)
             logger.info("radio: un-blocklisted %s [%s]", name, uri)
+        entries = self._entries()
+        # Push the updated blocklist to every open screen so their block buttons
+        # (and the pruned queue) reflect the change instantly.
+        EventSocketHandler.broadcast({"type": "blocklist", "entries": entries})
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"ok": True, "blocked": bool(on), "removed": removed,
-                               "entries": self._entries()}))
+                               "entries": entries}))
 
 
 class RadioHandler(tornado.web.RequestHandler):
@@ -1121,6 +1184,8 @@ class RadioHandler(tornado.web.RequestHandler):
         with _radio_lock:
             _radio["on"] = want_on
         logger.info("radio: turned %s", "on" if want_on else "off")
+        # Push the new state to every open screen so their toggle updates instantly.
+        EventSocketHandler.broadcast({"type": "radio", "on": want_on})
         if want_on:
             # Fill immediately (force) so music keeps going without waiting for
             # the next track boundary.
@@ -1235,6 +1300,8 @@ class LogsHandler(tornado.web.RequestHandler):
         with _radio_meta_lock:
             lines.append("radio blocklist: %d song(s), provenance=%d" % (
                 len(_radio_blocklist), len(_radio_provenance)))
+        with EventSocketHandler._lock:
+            lines.append("event sockets  : %d connected" % len(EventSocketHandler._clients))
         return lines
 
     def get(self):
@@ -1318,6 +1385,7 @@ def party_factory(config, core):
         ("/previous", PreviousHandler, {"core": core}),
         ("/radio", RadioHandler, {"core": core, "config": config}),
         ("/radio_block", RadioBlockHandler, {"core": core}),
+        ("/events", EventSocketHandler),
         ("/clientlog", ClientLogHandler, {}),
         ("/logs", LogsHandler, {"core": core, "config": config}),
     ]
