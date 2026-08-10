@@ -315,3 +315,8 @@ input[type="range"] {
   text-transform: uppercase;
   color: var(--muted);
 }
+/* A song on the Radio Blocklist, shown in the History list. */
+.blocked-song {
+  text-decoration: line-through;
+  opacity: 0.6;
+}

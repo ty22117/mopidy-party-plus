@@ -115,6 +115,7 @@ angular.module('partyApp', [])
     $scope.history = [];          // previously-played tracks, most-recent-first (for the history view)
     $scope.radioOn = false;       // radio mode (auto-queue similar songs) — party-wide
     $scope.radioAvailable = false; // whether a Last.fm API key is configured
+    $scope.radioBlock = {};       // uri -> true for songs on the Radio Blocklist (never seeded from)
 
     // Light/dark theme, toggled in the UI and remembered per device. Defaults to
     // dark. The <head> also applies this before first paint to avoid a flash.
@@ -306,6 +307,7 @@ angular.module('partyApp', [])
           $scope.refreshQueue();
           $scope.refreshHistory();
           $scope.refreshRadio();
+          $scope.refreshRadioBlock();
           njlog('INFO', 'client: ready (state=' + $scope.currentState.state +
             ', tracklist=' + $scope.currentState.length +
             ', volume=' + $scope.currentState.volume + ')');
@@ -349,6 +351,7 @@ angular.module('partyApp', [])
       $scope.refreshQueue();
       $scope.refreshHistory();
       $scope.refreshRadio();
+      $scope.refreshRadioBlock();
     });
 
     mopidy.on('event:trackPlaybackEnded', function () {
@@ -766,6 +769,51 @@ angular.module('partyApp', [])
         $scope.historyCount = (resp.data && resp.data.count) || 0;
         $scope.history = (resp.data && resp.data.entries) || [];
       }, function () { /* ignore */ });
+    };
+
+    // Radio Blocklist: songs radio must never seed from. Fetch the shared list
+    // so the block buttons reflect the current (party-wide) state.
+    $scope.refreshRadioBlock = function () {
+      $http.get('/netjammer/radio_block').then(function (resp) {
+        var map = {};
+        ((resp.data && resp.data.entries) || []).forEach(function (e) {
+          if (e && e.uri) map[e.uri] = true;
+        });
+        $scope.radioBlock = map;
+      }, function () { /* ignore */ });
+    };
+
+    $scope.isBlocked = function (uri) {
+      return !!(uri && $scope.radioBlock[uri]);
+    };
+
+    // Add/remove a song from the Radio Blocklist. Blocking also prunes the
+    // not-yet-played tracks radio previously spawned from it, so refresh the
+    // queue afterwards. `item` needs {uri, name}.
+    $scope.toggleRadioBlock = function (item) {
+      if (!item || !item.uri) {
+        return;
+      }
+      var turnOn = !$scope.radioBlock[item.uri];
+      njlog('INFO', 'action: radio ' + (turnOn ? 'block' : 'unblock') + ' ' + item.uri);
+      $http.post('/netjammer/radio_block', JSON.stringify({ uri: item.uri, name: item.name, on: turnOn })).then(
+        function success(response) {
+          $scope.radioBlock[item.uri] = turnOn ? true : undefined;
+          if (!turnOn) delete $scope.radioBlock[item.uri];
+          var removed = (response.data && response.data.removed) || 0;
+          if (turnOn) {
+            $scope.message = ['success', 'Blocked from radio: ' + item.name +
+              (removed ? ' (removed ' + removed + ' similar queued)' : '')];
+            $scope.refreshQueue();
+          } else {
+            $scope.message = ['success', 'Un-blocked: ' + item.name];
+          }
+        },
+        function error(response) {
+          njlog('ERROR', 'radio block failed (' + response.status + '): ' + item.uri);
+          $scope.message = ['error', 'Code ' + response.status + ' - ' + response.data];
+        }
+      );
     };
 
     // Queue a previously-played track again from the History view. Reuses the

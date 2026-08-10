@@ -105,12 +105,19 @@
         </div>
 
         <!-- Radio mode: auto-queue similar songs when the queue runs low -->
-        <div style="margin-top:12px; display:flex; justify-content:center;">
+        <div style="margin-top:12px; display:flex; justify-content:center; gap:8px;">
           <button type="button" class="btn btn-sm" ng-click="toggleRadio()" ng-disabled="!ready || !radioAvailable"
                   ng-class="{'btn-info active': radioOn, 'btn-secondary': !radioOn}"
                   title="{{! radioAvailable ? 'Radio: keep the party going with similar songs' : 'Set lastfm_api_key in the config to enable Radio' }}">
             <span class="fas fa-tower-broadcast"></span>
             Radio {{! radioOn ? 'on' : 'off' }}
+          </button>
+          <button type="button" class="btn btn-sm" ng-click="toggleRadioBlock(currentState.track)"
+                  ng-disabled="!ready || !currentState.track.uri"
+                  ng-class="{'btn-warning active': isBlocked(currentState.track.uri), 'btn-secondary': !isBlocked(currentState.track.uri)}"
+                  title="{{! isBlocked(currentState.track.uri) ? 'This song is on the Radio Blocklist — tap to allow it again' : 'Block this song from Radio (stop seeding from it and remove similar queued songs)' }}">
+            <span class="fas fa-ban"></span>
+            {{! isBlocked(currentState.track.uri) ? 'Blocked' : 'Block from radio' }}
           </button>
         </div>
 
@@ -192,10 +199,13 @@
       <ul class="list-group list-group-flush">
         <li class="list-group-item" ng-repeat="item in history" style="display:flex; align-items:center; gap:8px;">
           <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
-          <span style="flex:1;">{{! item.name }}</span>
+          <span style="flex:1;" ng-class="{'blocked-song': isBlocked(item.uri)}">{{! item.name }}</span>
           <span style="white-space:nowrap;">
             <button type="button" class="btn btn-xs btn-success" ng-click="requeueFromHistory(item)" title="Queue this again">
               <span class="fas fa-plus"></span>
+            </button>
+            <button type="button" class="btn btn-xs" ng-class="{'active': isBlocked(item.uri)}" ng-click="toggleRadioBlock(item)" title="{{! isBlocked(item.uri) ? 'On the Radio Blocklist — tap to allow' : 'Block this song from Radio' }}">
+              <span class="fas fa-ban"></span>
             </button>
           </span>
         </li>

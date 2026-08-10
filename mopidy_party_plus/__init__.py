@@ -14,7 +14,7 @@ import tornado.web
 
 from mopidy import config, core, ext
 
-__version__ = "1.10.7-NETJAMMER"
+__version__ = "1.11.0-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -71,6 +71,14 @@ _history_suppress_uri = None  # a track whose next "ended" should NOT be recorde
 _radio = {"on": False}
 _radio_lock = threading.Lock()
 _radio_busy = False  # a refill is currently in flight (guards against overlapping refills)
+
+# Radio Blocklist: songs the user never wants radio to seed from. Keyed by exact
+# track URI. Blocking a song also drops the not-yet-played tracks radio spawned
+# from it, using _radio_provenance (added-track URI -> set of seed URIs). Both
+# live in memory for the life of the Mopidy process and share one lock.
+_radio_blocklist = {}   # uri -> name (for display)
+_radio_provenance = {}  # added_track_uri -> set(seed_uri), bounded
+_radio_meta_lock = threading.Lock()
 
 
 class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
@@ -404,21 +412,28 @@ def _recent_seed_tracks(core, count):
         idx = len(tls) - 1  # nothing "current"; use the tail of the tracklist
     played = [t.track for t in tls[: idx + 1] if getattr(t, "track", None)]
     played.reverse()  # newest first
+    with _radio_meta_lock:
+        bl = set(_radio_blocklist)
+    played = [t for t in played if getattr(t, "uri", None) not in bl]
     return played[:count]
 
 
 def _combined_similar(seeds, api_key, limit):
     """Query Last.fm for each recent seed track and merge the results, favouring
     candidates that are similar to SEVERAL recent songs (the common thread) and
-    weighting more-recent seeds higher. Returns a ranked list of (artist, title)
-    plus the set of seed keys to exclude."""
+    weighting more-recent seeds higher. Returns (ranked list of (artist, title),
+    the set of seed keys to exclude, candidate-key -> set of contributing seed
+    URIs). The last one is provenance: which seeds led to each candidate, so a
+    blocklisted seed's offspring can later be pruned from the queue."""
     scores = {}  # norm_key -> [score, (artist, title)]
     seed_keys = set()
+    cand_seeds = {}  # candidate norm_key -> set(seed_uri)
     n = len(seeds)
     for i, s in enumerate(seeds):
         artist, title = _seed_from_track(s)
         if not artist and not title:
             continue
+        seed_uri = getattr(s, "uri", None)
         seed_keys.add(_norm_key(artist, title))
         recency_w = n - i  # newest seed weighted highest
         sim = _lastfm_similar(artist, title, api_key, limit)
@@ -430,8 +445,10 @@ def _combined_similar(seeds, api_key, limit):
                 scores[k][0] += pts
             else:
                 scores[k] = [pts, (ar, nm)]
+            if seed_uri:
+                cand_seeds.setdefault(k, set()).add(seed_uri)
     ranked = [v[1] for v in sorted(scores.values(), key=lambda x: -x[0])]
-    return ranked, seed_keys
+    return ranked, seed_keys, cand_seeds
 
 
 def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
@@ -441,37 +458,38 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
     global _radio_busy
     try:
         limit = max(batch * 4, 20)
+        # Build the seed list: an explicit seed, else the last few played tracks
+        # (blends the recent vibe so radio doesn't drift off one song), else just
+        # the currently-playing track.
         seeds = None
-        if seed_track is None:
+        if seed_track is not None:
+            seeds = [seed_track]
+        elif seed_count > 1:
             seeds = _recent_seed_tracks(core, seed_count)
-        if seeds:
-            # Multi-seed path: blend the last few played tracks so the radio
-            # stays anchored to the recent vibe instead of drifting off one song.
-            names = ", ".join(
-                "%s - %s" % (a or "?", t or "?")
-                for a, t in (_seed_from_track(s) for s in seeds)
-            )
-            logger.info("radio: seeding from last %d track(s): %s", len(seeds), names)
-            similar, seed_keys = _combined_similar(seeds, api_key, limit)
-        else:
-            # Single-seed path: an explicit seed_track, radio_seed_count <= 1, or
-            # the tracklist wasn't readable -- seed from the current track only.
-            seed = seed_track
-            if seed is None:
-                try:
-                    seed = core.playback.get_current_track().get()
-                except Exception:
-                    seed = None
-            if seed is None:
+        if not seeds:
+            try:
+                cur = core.playback.get_current_track().get()
+            except Exception:
+                cur = None
+            if cur is None:
                 logger.info("radio: no seed track; nothing to refill")
                 return
-            artist, title = _seed_from_track(seed)
-            if not title and not artist:
-                logger.info("radio: seed has no usable artist/title")
-                return
-            logger.info("radio: seeding from %s - %s", artist or "?", title or "?")
-            similar = _lastfm_similar(artist, title, api_key, limit)
-            seed_keys = {_norm_key(artist, title)}
+            seeds = [cur]
+
+        # Never seed from a blocklisted song.
+        with _radio_meta_lock:
+            bl = set(_radio_blocklist)
+        seeds = [s for s in seeds if getattr(s, "uri", None) not in bl]
+        if not seeds:
+            logger.info("radio: all candidate seeds are blocklisted; skipping refill")
+            return
+
+        names = ", ".join(
+            "%s - %s" % (a or "?", t or "?")
+            for a, t in (_seed_from_track(s) for s in seeds)
+        )
+        logger.info("radio: seeding from %d track(s): %s", len(seeds), names)
+        similar, seed_keys, cand_seeds = _combined_similar(seeds, api_key, limit)
 
         if not similar:
             logger.info("radio: no similar tracks found")
@@ -524,6 +542,14 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
                 added += 1
                 if first_added is None and new_tls:
                     first_added = new_tls[0]
+                # Remember which seed(s) produced this track so blocking a seed
+                # can later prune its offspring from the queue.
+                contributing = cand_seeds.get(_norm_key(sim_artist, sim_title))
+                if contributing:
+                    with _radio_meta_lock:
+                        _radio_provenance[uri] = set(contributing)
+                        while len(_radio_provenance) > 500:
+                            _radio_provenance.pop(next(iter(_radio_provenance)))
                 logger.info("radio: added %s - %s [%s]", sim_artist, sim_title, uri)
             except Exception as e:
                 logger.warning("radio: add failed for %s: %r", uri, e)
@@ -576,6 +602,39 @@ def _maybe_refill_radio(core, config, force=False):
     threading.Thread(
         target=_refill_radio, args=(core, api_key, batch, seed_count), daemon=True
     ).start()
+
+
+def _prune_radio_offspring(core, seed_uri):
+    """Remove not-yet-played tracks that radio added because they were similar to
+    `seed_uri` (per _radio_provenance). Only upcoming tracks are touched. Returns
+    how many were removed."""
+    try:
+        tls = core.tracklist.get_tl_tracks().get() or []
+        idx = core.tracklist.index().get()
+    except Exception:
+        return 0
+    cur = -1 if idx is None else idx
+    with _radio_meta_lock:
+        prov = {u: set(s) for u, s in _radio_provenance.items()}
+    tlids, uris = [], []
+    for i, tl in enumerate(tls):
+        if i <= cur:
+            continue  # never remove the current or already-played tracks
+        uri = getattr(getattr(tl, "track", None), "uri", None)
+        if uri and seed_uri in prov.get(uri, ()):
+            tlids.append(tl.tlid)
+            uris.append(uri)
+    if not tlids:
+        return 0
+    try:
+        core.tracklist.remove({"tlid": tlids}).get()
+    except Exception as e:
+        logger.warning("radio: prune remove failed: %r", e)
+        return 0
+    with _radio_meta_lock:
+        for uri in uris:
+            _radio_provenance.pop(uri, None)
+    return len(tlids)
 
 
 class VoteRequestHandler(tornado.web.RequestHandler):
@@ -985,6 +1044,51 @@ class HistoryHandler(tornado.web.RequestHandler):
         self.write(json.dumps({"count": count, "last": last, "entries": entries}))
 
 
+class RadioBlockHandler(tornado.web.RequestHandler):
+    """The Radio Blocklist: songs radio must never seed from. GET returns the
+    current list; POST {uri, name, on} adds (on=true, default) or removes it.
+    Blocking a song also prunes the not-yet-played tracks radio spawned from it."""
+
+    def initialize(self, core):
+        self.core = core
+
+    def _entries(self):
+        with _radio_meta_lock:
+            return [{"uri": u, "name": n} for u, n in _radio_blocklist.items()]
+
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"entries": self._entries()}))
+
+    def post(self):
+        try:
+            data = json.loads(self.request.body.decode())
+        except Exception:
+            self.set_status(400)
+            self.write(json.dumps({"error": "Invalid request format"}))
+            return
+        uri = (data.get("uri") or "").strip()
+        name = (data.get("name") or uri or "").strip()
+        on = data.get("on", True)
+        if not uri:
+            self.set_status(400)
+            self.write(json.dumps({"error": "uri is required"}))
+            return
+        removed = 0
+        if on:
+            with _radio_meta_lock:
+                _radio_blocklist[uri] = name
+            removed = _prune_radio_offspring(self.core, uri)
+            logger.info("radio: blocklisted %s [%s]; pruned %d queued offspring", name, uri, removed)
+        else:
+            with _radio_meta_lock:
+                _radio_blocklist.pop(uri, None)
+            logger.info("radio: un-blocklisted %s [%s]", name, uri)
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"ok": True, "blocked": bool(on), "removed": removed,
+                               "entries": self._entries()}))
+
+
 class RadioHandler(tornado.web.RequestHandler):
     """Shared, party-wide radio toggle. GET reports state; POST {"on": bool}
     sets it. Turning it on kicks an immediate refill of similar songs."""
@@ -1128,6 +1232,9 @@ class LogsHandler(tornado.web.RequestHandler):
                 _conf(self.config, "radio_seed_count")))
         except Exception as e:
             lines.append("radio config read error: %r" % e)
+        with _radio_meta_lock:
+            lines.append("radio blocklist: %d song(s), provenance=%d" % (
+                len(_radio_blocklist), len(_radio_provenance)))
         return lines
 
     def get(self):
@@ -1210,6 +1317,7 @@ def party_factory(config, core):
         ("/history", HistoryHandler, {}),
         ("/previous", PreviousHandler, {"core": core}),
         ("/radio", RadioHandler, {"core": core, "config": config}),
+        ("/radio_block", RadioBlockHandler, {"core": core}),
         ("/clientlog", ClientLogHandler, {}),
         ("/logs", LogsHandler, {"core": core, "config": config}),
     ]
