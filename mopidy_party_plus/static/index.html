@@ -66,6 +66,14 @@
           <span class="fas fa-music"></span>
         </div>
 
+        <div class="np-origin" ng-if="currentState.track.uri">
+          <span class="np-origin-pill np-origin-radio" ng-if="isRadioAdded(currentState.track.uri)" title="Radio queued this song automatically">
+            <span class="fas fa-tower-broadcast"></span> Radio pick
+          </span>
+          <span class="np-origin-pill np-origin-user" ng-if="!isRadioAdded(currentState.track.uri)" title="Someone requested this song">
+            <span class="fas fa-user"></span> Requested
+          </span>
+        </div>
         <div style="font-size:1.15em; font-weight:bold;">
           {{! currentState.track.name }}
         </div>

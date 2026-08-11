@@ -365,3 +365,30 @@ input[type="range"] {
   background: var(--seed-bg);
   border: 1px solid var(--seed-accent);
 }
+
+/* Now-playing origin pill: is the current song a Radio pick or a direct request? */
+.np-origin {
+  margin-bottom: 4px;
+}
+.np-origin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.np-origin-radio {
+  background: var(--q-radio-bg);
+  color: var(--royal);
+}
+.np-origin-user {
+  background: var(--q-user-bg);
+  color: #2e7d32;
+}
+:root.theme-dark .np-origin-user {
+  color: #7ee08a;
+}
