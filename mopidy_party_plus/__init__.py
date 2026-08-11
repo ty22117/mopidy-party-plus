@@ -16,7 +16,7 @@ import tornado.ioloop
 
 from mopidy import config, core, ext
 
-__version__ = "1.12.0-NETJAMMER"
+__version__ = "1.13.0-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -453,11 +453,41 @@ def _combined_similar(seeds, api_key, limit):
     return ranked, seed_keys, cand_seeds
 
 
+# yt-dlp options for resolving a radio candidate to a YouTube video id. Mirrors
+# the working playlist-import opts (_extract_youtube_playlist) plus search tuning.
+_RADIO_YDL_OPTS = {
+    "quiet": True,
+    "no_warnings": True,
+    "extract_flat": "in_playlist",  # flat entries carry `id` with no per-video fetch
+    "skip_download": True,
+    "noplaylist": True,
+    "socket_timeout": 10,
+}
+
+
+def _yt_search_uri(query, ydl):
+    """Resolve a "artist title" query to a youtube:video:ID URI via yt-dlp, run in
+    the background thread so the slow network work never touches Mopidy's Core
+    actor (unlike core.library.search, which blocks Core and freezes every client).
+    Returns None on any error / no result."""
+    try:
+        info = ydl.extract_info("ytsearch1:" + query, download=False)
+        entries = (info or {}).get("entries") or []
+        if not entries:
+            return None
+        vid = entries[0].get("id")
+        return ("youtube:video:" + vid) if vid else None
+    except Exception as e:
+        logger.warning("radio: yt-dlp search failed for %r: %r", query, e)
+        return None
+
+
 def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
     """Fetch songs similar to the seed (default: currently playing), resolve each
-    to a YouTube track via library.search, and append playable ones. Runs in a
-    background thread (never call from the actor's event loop directly)."""
+    to a YouTube track (via yt-dlp, off the Core actor), and append playable ones.
+    Runs in a background thread (never call from the actor's event loop directly)."""
     global _radio_busy
+    ydl = None  # yt-dlp session, created below; referenced in finally
     try:
         limit = max(batch * 4, 20)
         # Build the seed list: an explicit seed, else the last few played tracks
@@ -509,6 +539,15 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
                 _norm_key("", h.get("name", "")) for h in list(_history)[-40:]
             )
 
+        # Resolve candidates with yt-dlp in THIS thread (off Core). One reused
+        # session per refill is rate-friendly. If yt-dlp is missing, fall back to
+        # core.library.search (which blocks Core -- the old, freezing behaviour).
+        try:
+            import yt_dlp
+            ydl = yt_dlp.YoutubeDL(_RADIO_YDL_OPTS)
+        except Exception as e:
+            logger.warning("radio: yt-dlp unavailable, falling back to library.search: %r", e)
+
         added = 0
         first_added = None
         for sim_artist, sim_title in similar:
@@ -519,27 +558,38 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
             query = (sim_artist + " " + sim_title).strip()
             if not query:
                 continue
-            try:
-                results = core.library.search(
-                    query={"any": [query]}, uris=["youtube:"]
-                ).get()
-            except Exception as e:
-                logger.warning("radio: search failed for %r: %r", query, e)
-                continue
             uri = None
-            for res in results or []:
-                for tr in (getattr(res, "tracks", None) or []):
-                    if getattr(tr, "uri", None):
-                        uri = tr.uri
+            if ydl is not None:
+                uri = _yt_search_uri(query, ydl)  # OFF-CORE network work
+            else:
+                # Fallback (yt-dlp missing): the old Core-blocking search path.
+                try:
+                    results = core.library.search(
+                        query={"any": [query]}, uris=["youtube:"]
+                    ).get()
+                except Exception as e:
+                    logger.warning("radio: search failed for %r: %r", query, e)
+                    continue
+                for res in results or []:
+                    for tr in (getattr(res, "tracks", None) or []):
+                        if getattr(tr, "uri", None):
+                            uri = tr.uri
+                            break
+                    if uri:
                         break
-                if uri:
-                    break
             if not uri or uri in existing_uris:
                 continue
             if _norm_key("", sim_title) in recent_keys:
                 continue
             try:
                 new_tls = core.tracklist.add(uris=[uri]).get()
+                # Key dedup/provenance off the URI the tracklist actually stored
+                # (mopidy-youtube may canonicalise our youtube:video:ID form), so
+                # blocklist pruning and queue colouring match what the queue sees.
+                canon = uri
+                if new_tls and getattr(new_tls[0], "track", None) and getattr(new_tls[0].track, "uri", None):
+                    canon = new_tls[0].track.uri
+                existing_uris.add(canon)
                 existing_uris.add(uri)
                 added += 1
                 if first_added is None and new_tls:
@@ -549,10 +599,13 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
                 contributing = cand_seeds.get(_norm_key(sim_artist, sim_title))
                 if contributing:
                     with _radio_meta_lock:
-                        _radio_provenance[uri] = set(contributing)
+                        _radio_provenance[canon] = set(contributing)
                         while len(_radio_provenance) > 500:
                             _radio_provenance.pop(next(iter(_radio_provenance)))
-                logger.info("radio: added %s - %s [%s]", sim_artist, sim_title, uri)
+                logger.info("radio: added %s - %s [%s]", sim_artist, sim_title, canon)
+                # Let Core interleave other requests (the position seeker polls
+                # every 200ms) between adds, and space out yt-dlp searches.
+                time.sleep(0.25)
             except Exception as e:
                 logger.warning("radio: add failed for %s: %r", uri, e)
 
@@ -569,6 +622,11 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
 
         logger.info("radio: refill complete, added %d track(s)", added)
     finally:
+        try:
+            if ydl is not None:
+                ydl.close()
+        except Exception:
+            pass
         with _radio_lock:
             _radio_busy = False
 

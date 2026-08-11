@@ -118,6 +118,7 @@ angular.module('partyApp', [])
     $scope.radioBlock = {};       // uri -> true for songs on the Radio Blocklist (never seeded from)
     $scope.radioAdded = {};       // uri -> true for songs radio queued itself (vs user-added)
     $scope.radioSeeds = {};       // uri -> true for songs currently seeding radio (highlighted in History)
+    $scope.radioActionSeq = 0;    // bumped on every local radio/block toggle so stale in-flight polls can't revert it
 
     // Light/dark theme, toggled in the UI and remembered per device. Defaults to
     // dark. The <head> also applies this before first paint to avoid a flash.
@@ -824,11 +825,17 @@ angular.module('partyApp', [])
       return map;
     }
     $scope.refreshRadioState = function () {
+      var seq = $scope.radioActionSeq; // snapshot: if a local toggle happens while
+                                       // this GET is in flight, don't let the stale
+                                       // response clobber the user-toggled fields.
       $http.get('/netjammer/radio_state').then(function (resp) {
         var d = resp.data || {};
-        if (typeof d.on === 'boolean') $scope.radioOn = d.on;
+        if (seq === $scope.radioActionSeq) {
+          if (typeof d.on === 'boolean') $scope.radioOn = d.on;
+          $scope.radioBlock = urisToSet(d.blocklist);
+        }
+        // Not user-toggled -- always safe to refresh.
         if (typeof d.available === 'boolean') $scope.radioAvailable = d.available;
-        $scope.radioBlock = urisToSet(d.blocklist);
         $scope.radioAdded = urisToSet(d.added);
         $scope.radioSeeds = urisToSet(d.seeds);
       }, function () { /* ignore transient poll failures */ });
@@ -843,10 +850,12 @@ angular.module('partyApp', [])
       }
       var turnOn = !$scope.radioBlock[item.uri];
       njlog('INFO', 'action: radio ' + (turnOn ? 'block' : 'unblock') + ' ' + item.uri);
+      // Optimistic: apply the block/unblock immediately and invalidate in-flight polls.
+      if (turnOn) $scope.radioBlock[item.uri] = true;
+      else delete $scope.radioBlock[item.uri];
+      $scope.radioActionSeq++;
       $http.post('/netjammer/radio_block', JSON.stringify({ uri: item.uri, name: item.name, on: turnOn })).then(
         function success(response) {
-          $scope.radioBlock[item.uri] = turnOn ? true : undefined;
-          if (!turnOn) delete $scope.radioBlock[item.uri];
           var removed = (response.data && response.data.removed) || 0;
           if (turnOn) {
             $scope.message = ['success', 'Blocked from radio: ' + item.name +
@@ -858,6 +867,10 @@ angular.module('partyApp', [])
         },
         function error(response) {
           njlog('ERROR', 'radio block failed (' + response.status + '): ' + item.uri);
+          // Revert the optimistic change.
+          if (turnOn) delete $scope.radioBlock[item.uri];
+          else $scope.radioBlock[item.uri] = true;
+          $scope.radioActionSeq++;
           $scope.message = ['error', 'Code ' + response.status + ' - ' + response.data];
         }
       );
@@ -889,12 +902,16 @@ angular.module('partyApp', [])
     $scope.toggleRadio = function () {
       var want = !$scope.radioOn;
       njlog('INFO', 'action: radio -> ' + (want ? 'on' : 'off'));
+      // Optimistic: flip immediately and invalidate any in-flight state poll.
+      $scope.radioOn = want;
+      $scope.radioActionSeq++;
       $http.post('/netjammer/radio', JSON.stringify({ on: want }), {
         headers: { 'Content-Type': 'application/json' }
       }).then(function (resp) {
         var d = resp.data || {};
-        $scope.radioOn = !!d.on;
+        $scope.radioOn = !!d.on;         // apply server truth
         $scope.radioAvailable = !!d.available;
+        $scope.radioActionSeq++;         // re-invalidate polls started mid-request
         if (want) {
           $scope.message = ['success', 'Radio on — similar songs will keep the party going'];
         } else {
@@ -902,7 +919,9 @@ angular.module('partyApp', [])
         }
       }, function (resp) {
         var d = (resp && resp.data) || {};
+        $scope.radioOn = !want;          // revert the optimistic flip
         $scope.radioAvailable = !!d.available;
+        $scope.radioActionSeq++;
         $scope.message = ['error', d.error || 'Could not toggle radio'];
       });
     };
