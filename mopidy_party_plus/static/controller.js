@@ -116,6 +116,8 @@ angular.module('partyApp', [])
     $scope.radioOn = false;       // radio mode (auto-queue similar songs) — party-wide
     $scope.radioAvailable = false; // whether a Last.fm API key is configured
     $scope.radioBlock = {};       // uri -> true for songs on the Radio Blocklist (never seeded from)
+    $scope.radioAdded = {};       // uri -> true for songs radio queued itself (vs user-added)
+    $scope.radioSeeds = {};       // uri -> true for songs currently seeding radio (highlighted in History)
 
     // Light/dark theme, toggled in the UI and remembered per device. Defaults to
     // dark. The <head> also applies this before first paint to avoid a flash.
@@ -306,8 +308,7 @@ angular.module('partyApp', [])
           $scope.search();
           $scope.refreshQueue();
           $scope.refreshHistory();
-          $scope.refreshRadio();
-          $scope.refreshRadioBlock();
+          $scope.refreshRadioState();
           njlog('INFO', 'client: ready (state=' + $scope.currentState.state +
             ', tracklist=' + $scope.currentState.length +
             ', volume=' + $scope.currentState.volume + ')');
@@ -350,8 +351,7 @@ angular.module('partyApp', [])
       $scope.fetchAlbumArt(event.tl_track.track);
       $scope.refreshQueue();
       $scope.refreshHistory();
-      $scope.refreshRadio();
-      $scope.refreshRadioBlock();
+      $scope.refreshRadioState();
     });
 
     mopidy.on('event:trackPlaybackEnded', function () {
@@ -377,17 +377,13 @@ angular.module('partyApp', [])
       });
       $scope.refreshQueue();
       $scope.refreshHistory();
-      $scope.refreshRadio();
+      $scope.refreshRadioState();
     });
 
-    // Radio on/off and the Radio Blocklist are party-wide. A WebSocket pushes
-    // changes instantly to every screen; a slow poll stays as a fallback in case
-    // the socket can't connect (e.g. a proxy that won't upgrade it).
-    function applyBlocklistEntries(entries) {
-      var map = {};
-      (entries || []).forEach(function (e) { if (e && e.uri) map[e.uri] = true; });
-      $scope.radioBlock = map;
-    }
+    // Shared radio state (toggle, blocklist, queue colouring, seed highlight) is
+    // party-wide. A WebSocket nudges every screen to re-pull it the instant it
+    // changes; a fast poll is the fallback if the socket can't connect (e.g. a
+    // proxy that won't upgrade it). The poll skips itself while the socket is up.
     $scope.eventSocketUp = false; // true while the live socket is connected
     function connectEventSocket() {
       var proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
@@ -400,35 +396,24 @@ angular.module('partyApp', [])
         return;
       }
       ws.onopen = function () { $scope.eventSocketUp = true; };
-      ws.onmessage = function (ev) {
-        var data;
-        try { data = JSON.parse(ev.data); } catch (e) { return; }
-        $scope.$apply(function () {
-          if (data.type === 'snapshot') {
-            if (typeof data.radio === 'boolean') $scope.radioOn = data.radio;
-            applyBlocklistEntries(data.blocklist);
-          } else if (data.type === 'radio') {
-            if (typeof data.on === 'boolean') $scope.radioOn = data.on;
-          } else if (data.type === 'blocklist') {
-            applyBlocklistEntries(data.entries);
-          }
-        });
-        // A blocklist change may have pruned the queue; refresh it.
-        if (data.type === 'blocklist') $scope.refreshQueue();
+      ws.onmessage = function () {
+        // Any message means "something changed" -- re-pull the shared state and
+        // the queue (a block may have pruned it).
+        $scope.refreshRadioState();
+        $scope.refreshQueue();
       };
       ws.onclose = function () { $scope.eventSocketUp = false; setTimeout(connectEventSocket, 3000); };
       ws.onerror = function () { $scope.eventSocketUp = false; try { ws.close(); } catch (e) {} };
     }
     connectEventSocket();
 
-    // Fallback poll: only runs while the socket is NOT connected, so it never
-    // regresses below the old 3s behavior if the proxy won't upgrade the socket,
-    // and adds no redundant traffic when the socket is doing its job.
+    // Fast fallback poll: runs only while the socket is NOT connected, so buttons
+    // and colours stay near-realtime even when the proxy won't upgrade the socket,
+    // with no redundant traffic when the socket is doing its job.
     $interval(function () {
       if ($scope.eventSocketUp) return;
-      $scope.refreshRadio();
-      $scope.refreshRadioBlock();
-    }, 3000);
+      $scope.refreshRadioState();
+    }, 1000);
 
     $scope.printDuration = function (track) {
       if (!track.length)
@@ -821,20 +806,32 @@ angular.module('partyApp', [])
       }, function () { /* ignore */ });
     };
 
-    // Radio Blocklist: songs radio must never seed from. Fetch the shared list
-    // so the block buttons reflect the current (party-wide) state.
-    $scope.refreshRadioBlock = function () {
-      $http.get('/netjammer/radio_block').then(function (resp) {
-        var map = {};
-        ((resp.data && resp.data.entries) || []).forEach(function (e) {
-          if (e && e.uri) map[e.uri] = true;
-        });
-        $scope.radioBlock = map;
-      }, function () { /* ignore */ });
-    };
-
     $scope.isBlocked = function (uri) {
       return !!(uri && $scope.radioBlock[uri]);
+    };
+    $scope.isRadioAdded = function (uri) {
+      return !!(uri && $scope.radioAdded[uri]);
+    };
+    $scope.isRadioSeed = function (uri) {
+      return !!(uri && $scope.radioSeeds[uri]);
+    };
+
+    // One shared-state fetch that drives the radio toggle, block buttons, queue
+    // colouring (user- vs radio-added) and the History seed highlight.
+    function urisToSet(list) {
+      var map = {};
+      (list || []).forEach(function (u) { if (u) map[u] = true; });
+      return map;
+    }
+    $scope.refreshRadioState = function () {
+      $http.get('/netjammer/radio_state').then(function (resp) {
+        var d = resp.data || {};
+        if (typeof d.on === 'boolean') $scope.radioOn = d.on;
+        if (typeof d.available === 'boolean') $scope.radioAvailable = d.available;
+        $scope.radioBlock = urisToSet(d.blocklist);
+        $scope.radioAdded = urisToSet(d.added);
+        $scope.radioSeeds = urisToSet(d.seeds);
+      }, function () { /* ignore transient poll failures */ });
     };
 
     // Add/remove a song from the Radio Blocklist. Blocking also prunes the
@@ -887,16 +884,6 @@ angular.module('partyApp', [])
           }
         }
       );
-    };
-
-    // Radio mode is a shared, party-wide setting; fetch it so every screen
-    // reflects the same on/off state.
-    $scope.refreshRadio = function () {
-      $http.get('/netjammer/radio').then(function (resp) {
-        var d = resp.data || {};
-        $scope.radioOn = !!d.on;
-        $scope.radioAvailable = !!d.available;
-      }, function () { /* ignore */ });
     };
 
     $scope.toggleRadio = function () {

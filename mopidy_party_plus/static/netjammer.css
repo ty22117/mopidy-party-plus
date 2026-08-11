@@ -18,6 +18,12 @@
   --placeholder-fg: #b3bdc8;
   --dnd-bg: #eef3f8;
   --art-shadow: rgba(0, 46, 93, 0.22);
+
+  /* Queue origin + radio-seed tints (subtle overlays over the list rows) */
+  --q-radio-bg: rgba(47, 126, 216, 0.12);   /* algorithm/radio-added: royal */
+  --q-user-bg: rgba(46, 160, 67, 0.10);     /* user-added: green */
+  --seed-bg: rgba(240, 173, 78, 0.20);      /* currently seeding radio: amber */
+  --seed-accent: #d98b28;
 }
 
 :root.theme-dark {
@@ -32,6 +38,11 @@
   --placeholder-fg: #566069;
   --dnd-bg: #2b3138;
   --art-shadow: rgba(0, 0, 0, 0.6);
+
+  --q-radio-bg: rgba(90, 160, 255, 0.16);
+  --q-user-bg: rgba(74, 200, 120, 0.14);
+  --seed-bg: rgba(240, 173, 78, 0.22);
+  --seed-accent: #ffc76b;
 }
 
 body {
@@ -319,4 +330,38 @@ input[type="range"] {
 .blocked-song {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+/* Queue rows tinted by who added the song; history rows tinted when they're
+   currently seeding radio. */
+.queue-radio { background: linear-gradient(var(--q-radio-bg), var(--q-radio-bg)), var(--card) !important; }
+.queue-user { background: linear-gradient(var(--q-user-bg), var(--q-user-bg)), var(--card) !important; }
+.history-seed { background: linear-gradient(var(--seed-bg), var(--seed-bg)), var(--card) !important; }
+
+.origin-badge {
+  min-width: 1.2em;
+  text-align: center;
+  font-size: 0.8em;
+  opacity: 0.6;
+  color: var(--royal);
+}
+.origin-badge.origin-user {
+  opacity: 0.4;
+  color: var(--muted);
+}
+.history-legend {
+  padding: 6px 14px 0;
+  font-size: 0.78em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.history-seed-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--seed-bg);
+  border: 1px solid var(--seed-accent);
 }

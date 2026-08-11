@@ -16,7 +16,7 @@ import tornado.ioloop
 
 from mopidy import config, core, ext
 
-__version__ = "1.11.3-NETJAMMER"
+__version__ = "1.12.0-NETJAMMER"
 
 # NETJammer's own logger; INFO+ from here (and WARNING+ from anything, incl.
 # Mopidy/yt-dlp) is captured into a diagnostics ring buffer, merged with client
@@ -639,6 +639,24 @@ def _prune_radio_offspring(core, seed_uri):
     return len(tlids)
 
 
+def _current_seed_uris(core, config):
+    """The URIs of the tracks that currently influence radio -- i.e. what the next
+    refill would seed from: the last `radio_seed_count` played tracks (blocklisted
+    ones skipped), or the current track when seed_count <= 1."""
+    count = int(_conf(config, "radio_seed_count"))
+    seeds = _recent_seed_tracks(core, count)
+    if not seeds:
+        try:
+            cur = core.playback.get_current_track().get()
+        except Exception:
+            cur = None
+        seeds = [cur] if cur else []
+    uris = [getattr(s, "uri", None) for s in seeds if getattr(s, "uri", None)]
+    with _radio_meta_lock:
+        bl = set(_radio_blocklist)
+    return [u for u in uris if u not in bl]
+
+
 class VoteRequestHandler(tornado.web.RequestHandler):
 
     def initialize(self, core, data, config):
@@ -1144,9 +1162,9 @@ class RadioBlockHandler(tornado.web.RequestHandler):
                 _radio_blocklist.pop(uri, None)
             logger.info("radio: un-blocklisted %s [%s]", name, uri)
         entries = self._entries()
-        # Push the updated blocklist to every open screen so their block buttons
-        # (and the pruned queue) reflect the change instantly.
-        EventSocketHandler.broadcast({"type": "blocklist", "entries": entries})
+        # Nudge every open screen to re-pull shared state (block buttons, queue
+        # colouring, pruned queue) instantly.
+        EventSocketHandler.broadcast({"type": "changed"})
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"ok": True, "blocked": bool(on), "removed": removed,
                                "entries": entries}))
@@ -1184,14 +1202,43 @@ class RadioHandler(tornado.web.RequestHandler):
         with _radio_lock:
             _radio["on"] = want_on
         logger.info("radio: turned %s", "on" if want_on else "off")
-        # Push the new state to every open screen so their toggle updates instantly.
-        EventSocketHandler.broadcast({"type": "radio", "on": want_on})
+        # Nudge every open screen to re-pull shared state so their toggle updates
+        # instantly.
+        EventSocketHandler.broadcast({"type": "changed"})
         if want_on:
             # Fill immediately (force) so music keeps going without waiting for
             # the next track boundary.
             _maybe_refill_radio(self.core, self.config, force=True)
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"on": want_on, "available": self._has_key()}))
+
+
+class RadioStateHandler(tornado.web.RequestHandler):
+    """One shared-state snapshot for the frontend to poll/refresh: radio on/off,
+    whether radio is available, the blocklist URIs, the URIs radio added itself
+    (algorithm vs user, for queue colouring), and the URIs currently seeding radio
+    (for highlighting the influencing songs in History)."""
+
+    def initialize(self, core, config):
+        self.core = core
+        self.config = config
+
+    def get(self):
+        with _radio_lock:
+            on = _radio["on"]
+        available = bool((_conf(self.config, "lastfm_api_key") or "").strip())
+        with _radio_meta_lock:
+            blocklist = list(_radio_blocklist.keys())
+            added = list(_radio_provenance.keys())
+        try:
+            seeds = _current_seed_uris(self.core, self.config)
+        except Exception:
+            seeds = []
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({
+            "on": on, "available": available,
+            "blocklist": blocklist, "added": added, "seeds": seeds,
+        }))
 
 
 class PreviousHandler(tornado.web.RequestHandler):
@@ -1384,6 +1431,7 @@ def party_factory(config, core):
         ("/history", HistoryHandler, {}),
         ("/previous", PreviousHandler, {"core": core}),
         ("/radio", RadioHandler, {"core": core, "config": config}),
+        ("/radio_state", RadioStateHandler, {"core": core, "config": config}),
         ("/radio_block", RadioBlockHandler, {"core": core}),
         ("/events", EventSocketHandler),
         ("/clientlog", ClientLogHandler, {}),

@@ -156,11 +156,18 @@
         </span>
       </div>
       <ul class="list-group list-group-flush" dnd-sortable="queue" dnd-on-sort="onQueueSorted($from, $to)">
-        <li class="list-group-item" ng-repeat="item in queue" data-sortable-item style="display:flex; align-items:center; gap:8px;">
+        <li class="list-group-item" ng-repeat="item in queue" data-sortable-item style="display:flex; align-items:center; gap:8px;"
+            ng-class="{'queue-radio': isRadioAdded(item.track.uri), 'queue-user': !isRadioAdded(item.track.uri)}">
           <span class="drag-handle" title="Drag to reorder">
             <span class="fas fa-grip-vertical"></span>
           </span>
           <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
+          <span class="origin-badge" ng-if="isRadioAdded(item.track.uri)" title="Added by Radio">
+            <span class="fas fa-tower-broadcast"></span>
+          </span>
+          <span class="origin-badge origin-user" ng-if="!isRadioAdded(item.track.uri)" title="Added by someone">
+            <span class="fas fa-user"></span>
+          </span>
           <span style="flex:1;">
             {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
             <small>
@@ -196,9 +203,16 @@
           </button>
         </span>
       </div>
+      <div class="history-legend" ng-if="history.length">
+        <span class="history-seed-dot"></span> = currently seeding Radio
+      </div>
       <ul class="list-group list-group-flush">
-        <li class="list-group-item" ng-repeat="item in history" style="display:flex; align-items:center; gap:8px;">
+        <li class="list-group-item" ng-repeat="item in history" style="display:flex; align-items:center; gap:8px;"
+            ng-class="{'history-seed': isRadioSeed(item.uri)}">
           <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
+          <span class="origin-badge" ng-if="isRadioSeed(item.uri)" title="This song is seeding Radio right now">
+            <span class="fas fa-tower-broadcast"></span>
+          </span>
           <span style="flex:1;" ng-class="{'blocked-song': isBlocked(item.uri)}">{{! item.name }}</span>
           <span style="white-space:nowrap;">
             <button type="button" class="btn btn-xs btn-success" ng-click="requeueFromHistory(item)" title="Queue this again">
