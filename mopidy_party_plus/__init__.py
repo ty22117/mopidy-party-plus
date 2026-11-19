@@ -1,5 +1,6 @@
 import os
 import json
+import random
 import re
 import time
 import logging
@@ -80,6 +81,11 @@ _radio_busy = False  # a refill is currently in flight (guards against overlappi
 # live in memory for the life of the Mopidy process and share one lock.
 _radio_blocklist = {}   # uri -> name (for display)
 _radio_provenance = {}  # added_track_uri -> set(seed_uri), bounded
+_radio_pick_artist = {}  # added_track_uri -> artist name radio believed it was (bounded)
+# Station steering (all in-memory, guarded by _radio_meta_lock):
+_radio_pins = []        # [{kind: track|artist|genre, value, label, artist?, title?}]
+_radio_liked = {}       # uri -> {name, artist, title}: thumbed-up picks, used as seeds
+_radio_artist_ban = {}  # normalised artist -> display name: thumbed-down artists (session)
 _radio_meta_lock = threading.Lock()
 
 
@@ -124,11 +130,14 @@ class NetjammerFrontend(pykka.ThreadingActor, core.CoreListener):
             logger.info("startup: default volume set to %s%%", vol)
         except Exception as e:
             logger.warning("startup: could not set default volume: %r", e)
-        # Report whether the Last.fm key was loaded (drives whether Radio is usable).
+        # Report which radio sources are usable.
         key = (_conf(self.config, "lastfm_api_key") or "").strip()
         logger.info(
-            "startup: last.fm api key %s",
-            "configured (radio available)" if key else "NOT configured (radio disabled)",
+            "startup: radio sources %s; youtube music %s; last.fm key %s -> radio %s",
+            ",".join(_radio_sources(self.config)) or "(none)",
+            "available" if _ytm_available() else "NOT installed (pip install ytmusicapi)",
+            "configured" if key else "not configured",
+            "available" if _radio_available(self.config) else "DISABLED",
         )
 
     def track_playback_started(self, tl_track):
@@ -296,6 +305,9 @@ _DEFAULTS = {
     "radio_min_queue": 2,
     "radio_batch": 5,
     "radio_seed_count": 3,
+    "radio_source": "ytmusic,lastfm",
+    "radio_min_duration": 90,
+    "radio_max_duration": 480,
 }
 
 
@@ -315,7 +327,19 @@ def _conf(config, key):
     return _DEFAULTS.get(key) if value is None else value
 
 
-# ===== Radio mode: auto-queue similar songs (Last.fm -> YouTube) =====
+# ===== Radio mode: auto-queue similar songs =====
+#
+# Pipeline (all network work runs in a background thread, never on Core):
+#   1. Seed pool: what people actually asked for -- pinned station seeds (a song,
+#      artist or genre), else recent user-requested songs + thumbs-upped picks.
+#      Radio's own picks are NEVER used as seeds, so it can't drift off on its own.
+#   2. Candidates per seed: YouTube Music "song radio" (studio tracks, real video
+#      ids + durations), falling back to / topped up by Last.fm similarity.
+#   3. Quality filter: no live sets, concerts, full albums, covers, hour loops...
+#      and a duration window.
+#   4. Ranking with diversity: songs similar to several seeds score higher, max
+#      one track per artist per batch, recently-heard artists cool down, and a
+#      weighted-random pick from the top so refills don't repeat themselves.
 
 _BRACKETS_RE = re.compile(r"[\(\[\{].*?[\)\]\}]")  # (Official Video), [HD], {Lyrics}...
 _FEAT_RE = re.compile(r"\b(feat\.?|ft\.?|featuring)\b.*", re.IGNORECASE)
@@ -334,124 +358,545 @@ def _clean_title(name):
 
 
 def _seed_from_track(track):
-    """Return (artist, title) to seed Last.fm from a Mopidy Track."""
+    """Return (artist, title) for a Mopidy Track. YouTube uploads often carry the
+    channel as the artist and "Artist - Title" as the name; untangle that."""
     artist = ""
     try:
         if track.artists:
             artist = next(iter(track.artists)).name or ""
     except Exception:
         artist = ""
-    title = _clean_title(getattr(track, "name", "") or "")
+    raw = getattr(track, "name", "") or ""
+    artist = re.sub(r"\s*-\s*topic$|vevo$", "", artist.strip(), flags=re.IGNORECASE).strip()
+    title = _clean_title(raw)
+    if " - " in title:
+        left, right = title.split(" - ", 1)
+        if not artist or _norm_artist(left) == _norm_artist(artist):
+            artist, title = left.strip(), _clean_title(right)
     return _clean_title(artist), title
-
-
-def _lastfm_similar(artist, title, api_key, limit):
-    """Query Last.fm track.getSimilar -> list of (artist, title). Falls back to
-    artist.getSimilar's top artists (as {artist, ''} seeds) if no track match."""
-    def _call(params):
-        params = dict(params)
-        params.update({"api_key": api_key, "format": "json"})
-        url = "https://ws.audioscrobbler.com/2.0/?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NETJammer/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return json.loads(resp.read().decode("utf-8", "replace"))
-
-    out = []
-    try:
-        data = _call({
-            "method": "track.getsimilar",
-            "artist": artist,
-            "track": title,
-            "limit": limit,
-            "autocorrect": 1,
-        })
-        for t in (data.get("similartracks", {}) or {}).get("track", []) or []:
-            nm = t.get("name")
-            ar = (t.get("artist") or {}).get("name")
-            if nm and ar:
-                out.append((ar, nm))
-    except Exception as e:
-        logger.warning("radio: last.fm getSimilar failed: %r", e)
-
-    if not out and artist:
-        # Fallback: similar artists -> we search by artist name only.
-        try:
-            data = _call({
-                "method": "artist.getsimilar",
-                "artist": artist,
-                "limit": limit,
-                "autocorrect": 1,
-            })
-            for a in (data.get("similarartists", {}) or {}).get("artist", []) or []:
-                nm = a.get("name")
-                if nm:
-                    out.append((nm, ""))
-        except Exception as e:
-            logger.warning("radio: last.fm artist.getSimilar failed: %r", e)
-    return out
 
 
 def _norm_key(artist, title):
     return re.sub(r"\s+", " ", ("%s %s" % (artist, title)).strip().lower())
 
 
-def _recent_seed_tracks(core, count):
-    """Return up to `count` most-recently-played tracks (the current track plus
-    the ones just before it), newest first, as Mopidy Track objects. Because
-    consume is off, the tracklist keeps already-played songs before the current
-    index, so this reads real Track objects (with artist metadata) rather than
-    the name-only history list."""
-    if count <= 1:
-        return None  # signal: caller falls back to single current-track seeding
+def _norm_artist(name):
+    """Comparable artist key: 'Rick Astley', 'RickAstleyVEVO' and
+    'Rick Astley - Topic' all become 'rickastley'."""
+    s = (name or "").lower()
+    s = re.sub(r"\s*-\s*topic$", "", s)
+    s = re.sub(r"(vevo|official)$", "", s.strip())
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+def _norm_title(title):
+    return re.sub(r"[^a-z0-9]", "", _clean_title(title or "").lower())
+
+
+# Titles that are almost never what a party radio wants. Patterns are careful not
+# to catch real song names ("Live Forever", "Cover Me Up").
+_BAD_TITLE_PATTERNS = [re.compile(p, re.IGNORECASE) for p in (
+    r"\blive\s+(at|from|in|on|@)\b",
+    r"[\(\[]\s*live\b",
+    r"[-–|]\s*live\s*($|[\(\[|–-])",
+    r"\blive\s+(performance|version|session|set|recording|stream|concert|show)\b",
+    r"\bconcert\b",
+    r"\bfull\s+(album|set|show|concert|ep|performance)\b",
+    r"\b(world|reunion|farewell|arena|stadium)\s+tour\b",
+    r"\bbootleg\b",
+    r"\breact(s|ion|ing)?\b",
+    r"\bkaraoke\b",
+    r"[\(\[][^\)\]]*\bcover\b[^\)\]]*[\)\]]",
+    r"\bcover\s+(by|version)\b",
+    r"\b(acoustic|piano|guitar|metal|punk|rock|pop|cello|violin)\s+cover\b",
+    r"\b8d\b",
+    r"\bslowed\b",
+    r"\bsped\s*up\b",
+    r"\bnightcore\b",
+    r"\b\d+\s*(hours?|hrs?)\b",
+    r"\bhour\s+(loop|version)\b",
+    r"\b(dj\s+mix|megamix|mixtape|continuous\s+mix|medley|compilation|mashup|playlist)\b",
+    r"\b(greatest\s+hits|best\s+of)\b",
+    r"\b(interview|documentary|behind\s+the\s+scenes|making\s+of|tutorial|lesson|rehearsal|soundcheck)\b",
+)]
+
+
+def _is_bad_title(title, allow_text=""):
+    """True if `title` looks like a live set / concert / cover / loop etc. A
+    pattern is ignored when it also matches `allow_text` (the seed titles), so
+    seeding from a live song can still find live songs."""
+    t = title or ""
+    for p in _BAD_TITLE_PATTERNS:
+        if p.search(t) and not (allow_text and p.search(allow_text)):
+            return True
+    return False
+
+
+def _duration_ok(seconds, config):
+    if not seconds:
+        return True  # unknown -- let it through, the resolver will prefer known ones
+    lo = int(_conf(config, "radio_min_duration") or 0)
+    hi = int(_conf(config, "radio_max_duration") or 0)
+    cap = int(_conf(config, "max_song_duration") or 0)
+    if lo and seconds < lo:
+        return False
+    if hi and seconds > hi:
+        return False
+    if cap and seconds > cap:
+        return False
+    return True
+
+
+def _parse_length(s):
+    """'3:45' / '1:02:03' -> seconds (or None)."""
+    if isinstance(s, (int, float)):
+        return int(s)
+    try:
+        parts = [int(p) for p in str(s).split(":")]
+    except Exception:
+        return None
+    total = 0
+    for p in parts:
+        total = total * 60 + p
+    return total or None
+
+
+_YT_ID_RE = re.compile(r"^(?:youtube|yt|ytmusic)[^:]*:.*?([A-Za-z0-9_-]{11})$")
+
+
+def _video_id(uri):
+    m = _YT_ID_RE.match(uri or "")
+    return m.group(1) if m else None
+
+
+def _radio_sources(config):
+    raw = str(_conf(config, "radio_source") or "")
+    return [s.strip().lower() for s in re.split(r"[,\s]+", raw) if s.strip()]
+
+
+class Candidate(object):
+    __slots__ = ("artist", "title", "video_id", "duration", "source")
+
+    def __init__(self, artist, title, video_id=None, duration=None, source=""):
+        self.artist = artist or ""
+        self.title = title or ""
+        self.video_id = video_id
+        self.duration = duration
+        self.source = source
+
+    def key(self):
+        return _norm_key(_norm_artist(self.artist), _norm_title(self.title))
+
+
+class Seed(object):
+    """One thing radio draws from. `key` is what provenance records (a track URI,
+    or 'pin:artist:..' / 'pin:genre:..'), so blocking a seed can prune its picks."""
+    __slots__ = ("kind", "key", "weight", "artist", "title", "video_id", "label")
+
+    def __init__(self, kind, key, weight, artist="", title="", video_id=None, label=""):
+        self.kind = kind
+        self.key = key
+        self.weight = weight
+        self.artist = artist
+        self.title = title
+        self.video_id = video_id
+        self.label = label or ("%s - %s" % (artist, title)).strip(" -")
+
+
+# --- Candidate cache: pins and seeds repeat across refills; don't refetch. ---
+_cand_cache = {}
+_cand_cache_lock = threading.Lock()
+_CAND_TTL = 30 * 60
+
+
+def _cached(key, fn):
+    now = time.time()
+    with _cand_cache_lock:
+        hit = _cand_cache.get(key)
+        if hit and now - hit[0] < _CAND_TTL:
+            return list(hit[1])
+    val = fn() or []
+    with _cand_cache_lock:
+        _cand_cache[key] = (now, list(val))
+        while len(_cand_cache) > 200:
+            _cand_cache.pop(next(iter(_cand_cache)))
+    return list(val)
+
+
+# --- YouTube Music (ytmusicapi, unauthenticated) ---
+_ytm = {"client": None, "tried": False}
+_ytm_lock = threading.Lock()
+
+
+def _ytm_available():
+    try:
+        import ytmusicapi  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _ytm_client():
+    with _ytm_lock:
+        if _ytm["client"] is None and not _ytm["tried"]:
+            _ytm["tried"] = True
+            try:
+                from ytmusicapi import YTMusic
+                _ytm["client"] = YTMusic()
+                logger.info("radio: YouTube Music source ready")
+            except Exception as e:
+                logger.warning("radio: YouTube Music unavailable (%r); using Last.fm only", e)
+        return _ytm["client"]
+
+
+def _ytm_track_to_cand(t, source):
+    vid = t.get("videoId")
+    title = t.get("title")
+    if not vid or not title:
+        return None
+    artists = t.get("artists") or []
+    artist = (artists[0].get("name") if artists and isinstance(artists[0], dict) else "") or ""
+    dur = t.get("duration_seconds") or _parse_length(t.get("length") or t.get("duration"))
+    return Candidate(artist, title, vid, dur, source)
+
+
+def _ytm_song_radio(video_id, limit=50):
+    def fetch():
+        yt = _ytm_client()
+        if yt is None:
+            return []
+        try:
+            res = yt.get_watch_playlist(videoId=video_id, radio=True, limit=limit)
+        except Exception as e:
+            logger.warning("radio: ytmusic song radio failed for %s: %r", video_id, e)
+            return []
+        out = []
+        for t in (res or {}).get("tracks") or []:
+            c = _ytm_track_to_cand(t, "ytmusic")
+            if c and c.video_id != video_id:
+                out.append(c)
+        return out
+    return _cached(("ytm-radio", video_id), fetch)
+
+
+def _ytm_find_song(artist, title):
+    """Find a studio song's video id on YouTube Music (for seeding a non-YouTube
+    track, e.g. a local file, into song radio)."""
+    yt = _ytm_client()
+    if yt is None:
+        return None
+    try:
+        res = yt.search(("%s %s" % (artist, title)).strip(), filter="songs", limit=3)
+    except Exception:
+        return None
+    for r in res or []:
+        if r.get("videoId"):
+            return r["videoId"]
+    return None
+
+
+def _ytm_artist_seed(name):
+    def fetch():
+        yt = _ytm_client()
+        if yt is None:
+            return []
+        out = []
+        try:
+            hits = yt.search(name, filter="artists", limit=3) or []
+            browse = next((h.get("browseId") for h in hits if h.get("browseId")), None)
+            songs = []
+            if browse:
+                art = yt.get_artist(browse) or {}
+                songs = ((art.get("songs") or {}).get("results")) or []
+            for t in songs:
+                c = _ytm_track_to_cand(t, "ytmusic-artist")
+                if c:
+                    if not c.artist:
+                        c.artist = name
+                    out.append(c)
+            # Artist radio: their top song's radio mixes in similar artists.
+            if out:
+                out.extend(_ytm_song_radio(out[0].video_id))
+        except Exception as e:
+            logger.warning("radio: ytmusic artist seed failed for %r: %r", name, e)
+        return out
+    return _cached(("ytm-artist", name.lower()), fetch)
+
+
+def _ytm_genre_seed(text):
+    def fetch():
+        yt = _ytm_client()
+        if yt is None:
+            return []
+        out = []
+        try:
+            hits = yt.search(text, filter="playlists", limit=5) or []
+            for h in hits[:2]:
+                pid = h.get("browseId") or h.get("playlistId")
+                if not pid:
+                    continue
+                if pid.startswith("VL"):
+                    pid = pid[2:]
+                pl = yt.get_playlist(pid, limit=100) or {}
+                for t in pl.get("tracks") or []:
+                    c = _ytm_track_to_cand(t, "ytmusic-genre")
+                    if c:
+                        out.append(c)
+                if len(out) >= 40:
+                    break
+        except Exception as e:
+            logger.warning("radio: ytmusic genre seed failed for %r: %r", text, e)
+        # Playlist order isn't a similarity ranking; shuffle so rank is fair.
+        random.shuffle(out)
+        return out
+    return _cached(("ytm-genre", text.lower()), fetch)
+
+
+# --- Last.fm (fallback / top-up; needs lastfm_api_key) ---
+
+def _lastfm_call(api_key, params):
+    params = dict(params)
+    params.update({"api_key": api_key, "format": "json", "autocorrect": 1})
+    url = "https://ws.audioscrobbler.com/2.0/?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": "NETJammer/1.0"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+def _lastfm_tracks(data, root, key="track"):
+    out = []
+    for t in ((data or {}).get(root, {}) or {}).get(key, []) or []:
+        nm = t.get("name")
+        ar = t.get("artist")
+        ar = ar.get("name") if isinstance(ar, dict) else ar
+        if nm and ar:
+            dur = t.get("duration")
+            try:
+                dur = int(dur) or None
+                if dur and dur > 10000:  # some endpoints report ms
+                    dur //= 1000
+            except Exception:
+                dur = None
+            out.append(Candidate(ar, nm, None, dur, "lastfm"))
+    return out
+
+
+def _lastfm_artist_top(api_key, artist, limit):
+    try:
+        return _lastfm_tracks(_lastfm_call(api_key, {
+            "method": "artist.gettoptracks", "artist": artist, "limit": limit}), "toptracks")
+    except Exception as e:
+        logger.warning("radio: last.fm artist.getTopTracks failed: %r", e)
+        return []
+
+
+def _lastfm_similar(artist, title, api_key, limit):
+    """track.getSimilar; if unknown, the top tracks of a few similar artists
+    (never a bare artist-name search, which is what dug up random live sets)."""
+    def fetch():
+        out = []
+        if title:
+            try:
+                out = _lastfm_tracks(_lastfm_call(api_key, {
+                    "method": "track.getsimilar", "artist": artist, "track": title,
+                    "limit": limit}), "similartracks")
+            except Exception as e:
+                logger.warning("radio: last.fm getSimilar failed: %r", e)
+        if not out and artist:
+            out = _lastfm_similar_artists_top(api_key, artist)
+        return out
+    return _cached(("lfm-sim", artist.lower(), title.lower(), limit), fetch)
+
+
+def _lastfm_similar_artists_top(api_key, artist, n_artists=6, per_artist=3):
+    try:
+        data = _lastfm_call(api_key, {"method": "artist.getsimilar", "artist": artist,
+                                      "limit": n_artists})
+        names = [a.get("name") for a in (data.get("similarartists", {}) or {}).get("artist", []) or []
+                 if a.get("name")]
+    except Exception as e:
+        logger.warning("radio: last.fm artist.getSimilar failed: %r", e)
+        names = []
+    out = []
+    # Interleave so ranks alternate between artists (natural diversity).
+    per = [_lastfm_artist_top(api_key, nm, per_artist) for nm in names]
+    for i in range(per_artist):
+        for lst in per:
+            if i < len(lst):
+                out.append(lst[i])
+    return out
+
+
+def _lastfm_artist_seed(api_key, artist):
+    def fetch():
+        own = _lastfm_artist_top(api_key, artist, 10)
+        others = _lastfm_similar_artists_top(api_key, artist)
+        out = []
+        for i in range(max(len(own), len(others))):  # interleave own + similar
+            if i < len(own):
+                out.append(own[i])
+            if i < len(others):
+                out.append(others[i])
+        return out
+    return _cached(("lfm-artist", artist.lower()), fetch)
+
+
+def _lastfm_genre_seed(api_key, tag):
+    def fetch():
+        try:
+            out = _lastfm_tracks(_lastfm_call(api_key, {
+                "method": "tag.gettoptracks", "tag": tag, "limit": 60}), "tracks")
+        except Exception as e:
+            logger.warning("radio: last.fm tag.getTopTracks failed: %r", e)
+            out = []
+        random.shuffle(out)
+        return out
+    return _cached(("lfm-tag", tag.lower()), fetch)
+
+
+def _candidates_for_seed(seed, config, limit):
+    """Gather candidates for one seed from the configured sources, in order of
+    preference, topping up from the next source when the first comes up short."""
+    sources = _radio_sources(config)
+    api_key = (_conf(config, "lastfm_api_key") or "").strip()
+    out = []
+    for src in sources:
+        if len(out) >= limit:
+            break
+        if src == "ytmusic" and _ytm_available():
+            if seed.kind == "track":
+                vid = seed.video_id or (_ytm_find_song(seed.artist, seed.title)
+                                        if (seed.artist or seed.title) else None)
+                if vid:
+                    out.extend(_ytm_song_radio(vid))
+            elif seed.kind == "artist":
+                out.extend(_ytm_artist_seed(seed.artist))
+            elif seed.kind == "genre":
+                out.extend(_ytm_genre_seed(seed.title))
+        elif src == "lastfm" and api_key:
+            if seed.kind == "track" and (seed.artist or seed.title):
+                out.extend(_lastfm_similar(seed.artist, seed.title, api_key, limit))
+            elif seed.kind == "artist":
+                out.extend(_lastfm_artist_seed(api_key, seed.artist))
+            elif seed.kind == "genre":
+                out.extend(_lastfm_genre_seed(api_key, seed.title))
+    return out
+
+
+def _radio_available(config):
+    sources = _radio_sources(config)
+    if "ytmusic" in sources and _ytm_available():
+        return True
+    return "lastfm" in sources and bool((_conf(config, "lastfm_api_key") or "").strip())
+
+
+# --- Seed pool ---
+
+def _weighted_shuffle(items, weight):
+    """Order items randomly, heavier ones tending to come first
+    (Efraimidis-Spirakis weighted sampling without replacement)."""
+    keyed = []
+    for it in items:
+        w = max(float(weight(it)), 1e-6)
+        keyed.append((random.random() ** (1.0 / w), it))
+    keyed.sort(key=lambda x: -x[0])
+    return [it for _, it in keyed]
+
+
+def _track_seed(track, weight):
+    artist, title = _seed_from_track(track)
+    uri = getattr(track, "uri", None)
+    if not uri or not (artist or title):
+        return None
+    return Seed("track", uri, weight, artist, title, _video_id(uri),
+                getattr(track, "name", "") or "")
+
+
+def _pin_seed(pin, weight=3.0):
+    kind = pin.get("kind")
+    if kind == "track":
+        uri = pin.get("value")
+        return Seed("track", uri, weight, pin.get("artist") or "", pin.get("title") or "",
+                    _video_id(uri), pin.get("label"))
+    if kind == "artist":
+        return Seed("artist", "pin:artist:" + pin["value"].lower(), weight,
+                    artist=pin["value"], label=pin.get("label") or pin["value"])
+    if kind == "genre":
+        return Seed("genre", "pin:genre:" + pin["value"].lower(), weight,
+                    title=pin["value"], label=pin.get("label") or pin["value"])
+    return None
+
+
+def _build_seed_pool(core):
+    """All seeds radio may draw from right now (newest/strongest first).
+
+    - Pinned station seeds win outright when present.
+    - Otherwise: the last few songs people REQUESTED (played, playing, or queued),
+      plus radio picks someone thumbed up. Radio's own picks are excluded so it
+      stays anchored to the room's taste instead of wandering.
+    - Last resort: whatever is playing now."""
+    with _radio_meta_lock:
+        pins = [dict(p) for p in _radio_pins]
+        bl = set(_radio_blocklist)
+        picks = set(_radio_provenance)
+        liked = dict(_radio_liked)
+    if pins:
+        seeds = [s for s in (_pin_seed(p) for p in pins) if s and s.key not in bl]
+        if seeds:
+            return seeds
+
     try:
         tls = core.tracklist.get_tl_tracks().get() or []
         idx = core.tracklist.index().get()
     except Exception:
-        return None
-    if not tls:
-        return None
+        tls, idx = [], None
     if idx is None:
-        idx = len(tls) - 1  # nothing "current"; use the tail of the tracklist
+        idx = len(tls) - 1
     played = [t.track for t in tls[: idx + 1] if getattr(t, "track", None)]
+    upcoming = [t.track for t in tls[idx + 1:] if getattr(t, "track", None)]
     played.reverse()  # newest first
-    with _radio_meta_lock:
-        bl = set(_radio_blocklist)
-    played = [t for t in played if getattr(t, "uri", None) not in bl]
-    return played[:count]
 
-
-def _combined_similar(seeds, api_key, limit):
-    """Query Last.fm for each recent seed track and merge the results, favouring
-    candidates that are similar to SEVERAL recent songs (the common thread) and
-    weighting more-recent seeds higher. Returns (ranked list of (artist, title),
-    the set of seed keys to exclude, candidate-key -> set of contributing seed
-    URIs). The last one is provenance: which seeds led to each candidate, so a
-    blocklisted seed's offspring can later be pruned from the queue."""
-    scores = {}  # norm_key -> [score, (artist, title)]
-    seed_keys = set()
-    cand_seeds = {}  # candidate norm_key -> set(seed_uri)
-    n = len(seeds)
-    for i, s in enumerate(seeds):
-        artist, title = _seed_from_track(s)
-        if not artist and not title:
+    seeds, seen = [], set()
+    w = 2.0
+    for tr in played + upcoming:
+        uri = getattr(tr, "uri", None)
+        if not uri or uri in seen or uri in bl:
             continue
-        seed_uri = getattr(s, "uri", None)
-        seed_keys.add(_norm_key(artist, title))
-        recency_w = n - i  # newest seed weighted highest
-        sim = _lastfm_similar(artist, title, api_key, limit)
-        logger.info("radio: seed %s - %s -> %d similar", artist or "?", title or "?", len(sim))
-        for rank, (ar, nm) in enumerate(sim):
-            k = _norm_key(ar, nm)
-            pts = recency_w * (1.0 / (1 + rank))  # higher Last.fm rank scores more
-            if k in scores:
-                scores[k][0] += pts
-            else:
-                scores[k] = [pts, (ar, nm)]
-            if seed_uri:
-                cand_seeds.setdefault(k, set()).add(seed_uri)
-    ranked = [v[1] for v in sorted(scores.values(), key=lambda x: -x[0])]
-    return ranked, seed_keys, cand_seeds
+        if uri in picks and uri not in liked:
+            continue  # radio's own pick -- never a seed
+        s = _track_seed(tr, 2.0 if uri in liked else w)
+        if s:
+            seeds.append(s)
+            seen.add(uri)
+            w = max(0.5, w * 0.75)  # recency decay
+        if len(seeds) >= 6:
+            break
+    # Thumbs-upped picks that have scrolled out of the tracklist.
+    for uri, meta in liked.items():
+        if uri in seen or uri in bl:
+            continue
+        seeds.append(Seed("track", uri, 2.0, meta.get("artist") or "",
+                          _clean_title(meta.get("title") or meta.get("name") or ""),
+                          _video_id(uri), meta.get("name")))
+        if len(seeds) >= 8:
+            break
+    if seeds:
+        return seeds
 
+    try:
+        cur = core.playback.get_current_track().get()
+    except Exception:
+        cur = None
+    s = _track_seed(cur, 1.0) if cur is not None else None
+    return [s] if s and s.key not in bl else []
+
+
+def _current_seed_uris(core, config):
+    """Track URIs currently able to influence radio (for the History highlight)."""
+    return [s.key for s in _build_seed_pool(core) if s.kind == "track"]
+
+
+# --- YouTube resolver (for candidates without a video id, i.e. Last.fm) ---
 
 # yt-dlp options for resolving a radio candidate to a YouTube video id. Mirrors
 # the working playlist-import opts (_extract_youtube_playlist) plus search tuning.
@@ -465,153 +910,253 @@ _RADIO_YDL_OPTS = {
 }
 
 
-def _yt_search_uri(query, ydl):
-    """Resolve a "artist title" query to a youtube:video:ID URI via yt-dlp, run in
-    the background thread so the slow network work never touches Mopidy's Core
-    actor (unlike core.library.search, which blocks Core and freezes every client).
-    Returns None on any error / no result."""
+def _yt_search_uri(cand, ydl, config, allow_text=""):
+    """Resolve a candidate to a youtube:video:ID URI via yt-dlp (off the Core
+    actor). Looks at the top 5 results instead of blindly taking the first, drops
+    live/concert/loop uploads and anything outside the duration window, and
+    prefers official sources (' - Topic' channels, VEVO, the artist's channel).
+    Returns None if nothing suitable is found."""
+    query = ("%s %s" % (cand.artist, cand.title)).strip()
     try:
-        info = ydl.extract_info("ytsearch1:" + query, download=False)
-        entries = (info or {}).get("entries") or []
-        if not entries:
-            return None
-        vid = entries[0].get("id")
-        return ("youtube:video:" + vid) if vid else None
+        info = ydl.extract_info("ytsearch5:" + query, download=False)
     except Exception as e:
         logger.warning("radio: yt-dlp search failed for %r: %r", query, e)
         return None
+    want_artist = _norm_artist(cand.artist)
+    want_title = _norm_title(cand.title)
+    best, best_score = None, None
+    for i, e in enumerate((info or {}).get("entries") or []):
+        vid = e.get("id")
+        title = e.get("title") or ""
+        if not vid or _is_bad_title(title, allow_text):
+            continue
+        dur = e.get("duration")
+        if not _duration_ok(dur, config):
+            continue
+        chan = e.get("channel") or e.get("uploader") or ""
+        score = -0.3 * i  # mild preference for YouTube's own ordering
+        if re.search(r"-\s*topic$", chan, re.IGNORECASE):
+            score += 3
+        if "vevo" in chan.lower():
+            score += 2
+        if want_artist and want_artist in _norm_artist(chan):
+            score += 2
+        nt = _norm_title(title)
+        if want_title and want_title in nt:
+            score += 2
+        elif want_title:
+            score -= 2  # probably a different song
+        if want_artist and want_artist in re.sub(r"[^a-z0-9]", "", title.lower()):
+            score += 1
+        if not dur:
+            score -= 1
+        if best_score is None or score > best_score:
+            best, best_score = vid, score
+    return ("youtube:video:" + best) if best else None
 
 
-def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
-    """Fetch songs similar to the seed (default: currently playing), resolve each
-    to a YouTube track (via yt-dlp, off the Core actor), and append playable ones.
-    Runs in a background thread (never call from the actor's event loop directly)."""
-    global _radio_busy
-    ydl = None  # yt-dlp session, created below; referenced in finally
+# --- Ranking ---
+
+def _rank_candidates(seeds, config, limit):
+    """Merge candidates from every seed. Songs similar to several seeds (the
+    common thread) and to heavier seeds score higher. Returns a list of
+    (Candidate, score, set(seed_keys)) best-first, quality-filtered."""
+    allow_text = " ".join("%s %s" % (s.title, s.label) for s in seeds)
+    seed_keys = set(_norm_key(_norm_artist(s.artist), _norm_title(s.title))
+                    for s in seeds if s.kind == "track")
+    seed_vids = set(s.video_id for s in seeds if s.video_id)
+    merged = {}
+    for s in seeds:
+        cands = _candidates_for_seed(s, config, limit)
+        logger.info("radio: seed [%s] %s -> %d candidates", s.kind, s.label or "?", len(cands))
+        for rank, c in enumerate(cands):
+            k = c.key()
+            if not k.strip() or k in seed_keys or (c.video_id and c.video_id in seed_vids):
+                continue
+            if _is_bad_title(c.title, allow_text) or not _duration_ok(c.duration, config):
+                continue
+            pts = s.weight / (1.0 + 0.15 * rank)
+            ent = merged.get(k)
+            if ent is None:
+                merged[k] = [c, pts, {s.key}]
+            else:
+                ent[1] += pts
+                ent[2].add(s.key)
+                if not ent[0].video_id and c.video_id:  # prefer a resolved copy
+                    ent[0] = c
+    out = []
+    for c, pts, keys in merged.values():
+        out.append((c, pts * (1.0 + 0.5 * (len(keys) - 1)), keys))
+    out.sort(key=lambda x: -x[1])
+    return out
+
+
+def _recent_context(core):
+    """(artist keys heard recently or queued, video ids in the tracklist/history,
+    title keys in the tracklist/history) -- used to avoid repeats and to cool
+    down artists that were just played."""
+    artists, vids, titles, uris = set(), set(), set(), set()
     try:
-        limit = max(batch * 4, 20)
-        # Build the seed list: an explicit seed, else the last few played tracks
-        # (blends the recent vibe so radio doesn't drift off one song), else just
-        # the currently-playing track.
-        seeds = None
-        if seed_track is not None:
-            seeds = [seed_track]
-        elif seed_count > 1:
-            seeds = _recent_seed_tracks(core, seed_count)
-        if not seeds:
-            try:
-                cur = core.playback.get_current_track().get()
-            except Exception:
-                cur = None
-            if cur is None:
-                logger.info("radio: no seed track; nothing to refill")
-                return
-            seeds = [cur]
+        tls = core.tracklist.get_tl_tracks().get() or []
+        idx = core.tracklist.index().get()
+    except Exception:
+        tls, idx = [], None
+    if idx is None:
+        idx = len(tls) - 1
+    with _radio_meta_lock:
+        pick_artist = dict(_radio_pick_artist)
+    for i, tl in enumerate(tls):
+        tr = getattr(tl, "track", None)
+        if not tr:
+            continue
+        uri = getattr(tr, "uri", "") or ""
+        uris.add(uri)
+        v = _video_id(uri)
+        if v:
+            vids.add(v)
+        a, t = _seed_from_track(tr)
+        titles.add(_norm_title(t))
+        if i >= idx - 10:  # last ~10 played + everything still queued
+            artists.add(_norm_artist(pick_artist.get(uri) or a))
+    with _history_lock:
+        hist = list(_history)[-60:]
+    for h in hist:
+        v = _video_id(h.get("uri"))
+        if v:
+            vids.add(v)
+        titles.add(_norm_title(h.get("name", "")))
+    artists.discard("")
+    titles.discard("")
+    return artists, vids, titles, uris
 
-        # Never seed from a blocklisted song.
+
+def _refill_radio(core, config, seed_track=None):
+    """Pick seeds, gather + rank candidates, resolve them to YouTube and append
+    the best `radio_batch` with artist diversity. Runs in a background thread
+    (never call from the actor's event loop directly)."""
+    global _radio_busy
+    ydl = None
+    try:
+        batch = int(_conf(config, "radio_batch"))
+        n_seeds = max(1, int(_conf(config, "radio_seed_count")))
+        limit = max(batch * 6, 30)
+
+        pool = [_track_seed(seed_track, 3.0)] if seed_track is not None else _build_seed_pool(core)
+        pool = [s for s in pool if s]
+        if not pool:
+            logger.info("radio: no seeds; nothing to refill")
+            return
+        seeds = _weighted_shuffle(pool, lambda s: s.weight)[:n_seeds]
+        logger.info("radio: seeding from %d of %d seed(s): %s", len(seeds), len(pool),
+                    ", ".join("[%s] %s" % (s.kind, s.label) for s in seeds))
+
+        ranked = _rank_candidates(seeds, config, limit)
+        if not ranked:
+            logger.info("radio: no suitable candidates found")
+            return
+
+        recent_artists, recent_vids, recent_titles, existing_uris = _recent_context(core)
         with _radio_meta_lock:
-            bl = set(_radio_blocklist)
-        seeds = [s for s in seeds if getattr(s, "uri", None) not in bl]
-        if not seeds:
-            logger.info("radio: all candidate seeds are blocklisted; skipping refill")
-            return
+            banned = set(_radio_artist_ban)
+        pinned_artists = set(_norm_artist(s.artist) for s in seeds if s.kind == "artist")
+        seed_artists = set(_norm_artist(s.artist) for s in seeds if s.artist)
+        seed_artist_cap = max(1, batch // 3)
+        pinned_artist_cap = max(1, batch // 2)
+        allow_text = " ".join("%s %s" % (s.title, s.label) for s in seeds)
 
-        names = ", ".join(
-            "%s - %s" % (a or "?", t or "?")
-            for a, t in (_seed_from_track(s) for s in seeds)
-        )
-        logger.info("radio: seeding from %d track(s): %s", len(seeds), names)
-        similar, seed_keys, cand_seeds = _combined_similar(seeds, api_key, limit)
+        # Weighted-random over the top of the ranking (fresh picks every refill),
+        # then the rest in order as a reserve if resolution keeps failing.
+        top_n = batch * 4
+        order = _weighted_shuffle(ranked[:top_n], lambda x: x[1]) + ranked[top_n:]
 
-        if not similar:
-            logger.info("radio: no similar tracks found")
-            return
-
-        # What's already queued or recently played, to avoid repeats.
-        try:
-            existing_uris = set(
-                t.track.uri for t in (core.tracklist.get_tl_tracks().get() or [])
-            )
-        except Exception:
-            existing_uris = set()
-        with _history_lock:
-            recent_keys = set(
-                _norm_key("", h.get("name", "")) for h in list(_history)[-40:]
-            )
-
-        # Resolve candidates with yt-dlp in THIS thread (off Core). One reused
-        # session per refill is rate-friendly. If yt-dlp is missing, fall back to
-        # core.library.search (which blocks Core -- the old, freezing behaviour).
         try:
             import yt_dlp
             ydl = yt_dlp.YoutubeDL(_RADIO_YDL_OPTS)
         except Exception as e:
-            logger.warning("radio: yt-dlp unavailable, falling back to library.search: %r", e)
+            logger.warning("radio: yt-dlp unavailable; only YouTube Music picks can be used: %r", e)
 
-        added = 0
-        first_added = None
-        for sim_artist, sim_title in similar:
-            if added >= batch:
-                break
-            if _norm_key(sim_artist, sim_title) in seed_keys:
-                continue  # don't re-suggest one of the seed songs
-            query = (sim_artist + " " + sim_title).strip()
-            if not query:
-                continue
-            uri = None
-            if ydl is not None:
-                uri = _yt_search_uri(query, ydl)  # OFF-CORE network work
+        added, first_added = 0, None
+        batch_artists = {}
+        seed_artist_used = 0
+
+        def try_add(cand, keys, strict):
+            nonlocal added, first_added, seed_artist_used
+            a = _norm_artist(cand.artist)
+            if a in banned:
+                return False
+            if _norm_title(cand.title) in recent_titles:
+                return False
+            if cand.video_id and cand.video_id in recent_vids:
+                return False
+            is_pinned = a in pinned_artists
+            cap = pinned_artist_cap if is_pinned else 1
+            if batch_artists.get(a, 0) >= cap:
+                return False
+            if strict and not is_pinned:
+                if a in recent_artists:
+                    return False
+                if a in seed_artists and seed_artist_used >= seed_artist_cap:
+                    return False
+            if cand.video_id:
+                uri = "youtube:video:" + cand.video_id
+            elif ydl is not None:
+                uri = _yt_search_uri(cand, ydl, config, allow_text)
             else:
-                # Fallback (yt-dlp missing): the old Core-blocking search path.
-                try:
-                    results = core.library.search(
-                        query={"any": [query]}, uris=["youtube:"]
-                    ).get()
-                except Exception as e:
-                    logger.warning("radio: search failed for %r: %r", query, e)
-                    continue
-                for res in results or []:
-                    for tr in (getattr(res, "tracks", None) or []):
-                        if getattr(tr, "uri", None):
-                            uri = tr.uri
-                            break
-                    if uri:
-                        break
-            if not uri or uri in existing_uris:
-                continue
-            if _norm_key("", sim_title) in recent_keys:
-                continue
+                uri = None
+            vid = _video_id(uri) if uri else None
+            if not uri or uri in existing_uris or (vid and vid in recent_vids):
+                return False
             try:
                 new_tls = core.tracklist.add(uris=[uri]).get()
-                # Key dedup/provenance off the URI the tracklist actually stored
-                # (mopidy-youtube may canonicalise our youtube:video:ID form), so
-                # blocklist pruning and queue colouring match what the queue sees.
-                canon = uri
-                if new_tls and getattr(new_tls[0], "track", None) and getattr(new_tls[0].track, "uri", None):
-                    canon = new_tls[0].track.uri
-                existing_uris.add(canon)
-                existing_uris.add(uri)
-                added += 1
-                if first_added is None and new_tls:
-                    first_added = new_tls[0]
-                # Remember which seed(s) produced this track so blocking a seed
-                # can later prune its offspring from the queue.
-                contributing = cand_seeds.get(_norm_key(sim_artist, sim_title))
-                if contributing:
-                    with _radio_meta_lock:
-                        _radio_provenance[canon] = set(contributing)
-                        while len(_radio_provenance) > 500:
-                            _radio_provenance.pop(next(iter(_radio_provenance)))
-                logger.info("radio: added %s - %s [%s]", sim_artist, sim_title, canon)
-                # Let Core interleave other requests (the position seeker polls
-                # every 200ms) between adds, and space out yt-dlp searches.
-                time.sleep(0.25)
             except Exception as e:
                 logger.warning("radio: add failed for %s: %r", uri, e)
+                return False
+            if not new_tls:
+                return False
+            # Key provenance off the URI the tracklist actually stored
+            # (mopidy-youtube may canonicalise our youtube:video:ID form).
+            canon = uri
+            if getattr(new_tls[0], "track", None) and getattr(new_tls[0].track, "uri", None):
+                canon = new_tls[0].track.uri
+            existing_uris.update((uri, canon))
+            if vid:
+                recent_vids.add(vid)
+            recent_titles.add(_norm_title(cand.title))
+            batch_artists[a] = batch_artists.get(a, 0) + 1
+            if a in seed_artists:
+                seed_artist_used += 1
+            added += 1
+            if first_added is None:
+                first_added = new_tls[0]
+            with _radio_meta_lock:
+                _radio_provenance[canon] = set(keys)
+                _radio_pick_artist[canon] = cand.artist
+                while len(_radio_provenance) > 500:
+                    _radio_provenance.pop(next(iter(_radio_provenance)))
+                while len(_radio_pick_artist) > 500:
+                    _radio_pick_artist.pop(next(iter(_radio_pick_artist)))
+            logger.info("radio: added %s - %s [%s via %s]", cand.artist, cand.title, canon, cand.source)
+            # Let Core interleave other requests between adds, and space out searches.
+            time.sleep(0.25)
+            return True
+
+        tried = set()
+        for cand, _score, keys in order:
+            if added >= batch:
+                break
+            if try_add(cand, keys, strict=True):
+                tried.add(cand.key())
+        if added < max(1, batch // 2):
+            # Not enough diverse picks -- relax the cooldown rather than go quiet.
+            logger.info("radio: only %d diverse pick(s); relaxing artist cooldown", added)
+            for cand, _score, keys in order:
+                if added >= batch:
+                    break
+                if cand.key() not in tried:
+                    try_add(cand, keys, strict=False)
 
         # If playback had already stopped (e.g. the last song ended before this
-        # refill finished), start the first track we just added so radio keeps
-        # the music going without a gap.
+        # refill finished), start the first track we just added.
         if added and first_added is not None:
             try:
                 if core.playback.get_state().get() == "stopped":
@@ -621,6 +1166,10 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
                 logger.warning("radio: could not resume playback: %r", e)
 
         logger.info("radio: refill complete, added %d track(s)", added)
+        if added:
+            EventSocketHandler.broadcast({"type": "changed"})
+    except Exception as e:
+        logger.warning("radio: refill error: %r", e)
     finally:
         try:
             if ydl is not None:
@@ -629,19 +1178,28 @@ def _refill_radio(core, api_key, batch, seed_count=1, seed_track=None):
             pass
         with _radio_lock:
             _radio_busy = False
+            again = _radio_refill_again[0]
+            _radio_refill_again[0] = False
+        if again:
+            _maybe_refill_radio(core, config, force=True)
+
+
+_radio_refill_again = [False]  # a forced refill was requested while one was running
 
 
 def _maybe_refill_radio(core, config, force=False):
     """If radio is on (and, unless forced, the queue is running low), kick a
-    background refill. Guarded so only one refill runs at a time."""
+    background refill. Guarded so only one refill runs at a time; a forced
+    request during a refill is remembered and run right after it."""
     global _radio_busy
     with _radio_lock:
         if not _radio["on"]:
             return
         if _radio_busy:
+            if force:
+                _radio_refill_again[0] = True
             return
-    api_key = (_conf(config, "lastfm_api_key") or "").strip()
-    if not api_key:
+    if not _radio_available(config):
         return
     try:
         if not force:
@@ -655,19 +1213,17 @@ def _maybe_refill_radio(core, config, force=False):
         pass
     with _radio_lock:
         if _radio_busy:
+            if force:
+                _radio_refill_again[0] = True
             return
         _radio_busy = True
-    batch = int(_conf(config, "radio_batch"))
-    seed_count = int(_conf(config, "radio_seed_count"))
-    threading.Thread(
-        target=_refill_radio, args=(core, api_key, batch, seed_count), daemon=True
-    ).start()
+    threading.Thread(target=_refill_radio, args=(core, config), daemon=True).start()
 
 
-def _prune_radio_offspring(core, seed_uri):
-    """Remove not-yet-played tracks that radio added because they were similar to
-    `seed_uri` (per _radio_provenance). Only upcoming tracks are touched. Returns
-    how many were removed."""
+def _prune_upcoming_picks(core, should_remove):
+    """Remove not-yet-played radio picks for which should_remove(uri, seed_keys)
+    is true. Never touches the current or already-played tracks, or songs people
+    requested. Returns how many were removed."""
     try:
         tls = core.tracklist.get_tl_tracks().get() or []
         idx = core.tracklist.index().get()
@@ -679,9 +1235,9 @@ def _prune_radio_offspring(core, seed_uri):
     tlids, uris = [], []
     for i, tl in enumerate(tls):
         if i <= cur:
-            continue  # never remove the current or already-played tracks
+            continue
         uri = getattr(getattr(tl, "track", None), "uri", None)
-        if uri and seed_uri in prov.get(uri, ()):
+        if uri and uri in prov and should_remove(uri, prov[uri]):
             tlids.append(tl.tlid)
             uris.append(uri)
     if not tlids:
@@ -697,22 +1253,14 @@ def _prune_radio_offspring(core, seed_uri):
     return len(tlids)
 
 
-def _current_seed_uris(core, config):
-    """The URIs of the tracks that currently influence radio -- i.e. what the next
-    refill would seed from: the last `radio_seed_count` played tracks (blocklisted
-    ones skipped), or the current track when seed_count <= 1."""
-    count = int(_conf(config, "radio_seed_count"))
-    seeds = _recent_seed_tracks(core, count)
-    if not seeds:
-        try:
-            cur = core.playback.get_current_track().get()
-        except Exception:
-            cur = None
-        seeds = [cur] if cur else []
-    uris = [getattr(s, "uri", None) for s in seeds if getattr(s, "uri", None)]
+def _prune_radio_offspring(core, seed_uri):
+    """Remove not-yet-played tracks radio added because of `seed_uri`."""
+    return _prune_upcoming_picks(core, lambda uri, keys: seed_uri in keys)
+
+
+def _radio_pins_snapshot():
     with _radio_meta_lock:
-        bl = set(_radio_blocklist)
-    return [u for u in uris if u not in bl]
+        return [dict(p) for p in _radio_pins]
 
 
 class VoteRequestHandler(tornado.web.RequestHandler):
@@ -1146,7 +1694,8 @@ class EventSocketHandler(tornado.websocket.WebSocketHandler):
             with _radio_meta_lock:
                 entries = [{"uri": u, "name": n} for u, n in _radio_blocklist.items()]
             self.write_message(json.dumps(
-                {"type": "snapshot", "radio": on, "blocklist": entries}))
+                {"type": "snapshot", "radio": on, "blocklist": entries,
+                 "pins": _radio_pins_snapshot()}))
         except Exception:
             pass
 
@@ -1237,7 +1786,7 @@ class RadioHandler(tornado.web.RequestHandler):
         self.config = config
 
     def _has_key(self):
-        return bool((_conf(self.config, "lastfm_api_key") or "").strip())
+        return _radio_available(self.config)
 
     def get(self):
         self.set_header("Content-Type", "application/json")
@@ -1253,8 +1802,9 @@ class RadioHandler(tornado.web.RequestHandler):
         want_on = bool(body.get("on"))
         if want_on and not self._has_key():
             self.set_status(409)
-            self.write(json.dumps({"error": "Radio needs a Last.fm API key (set "
-                                   "lastfm_api_key in the [netjammer] config).",
+            self.write(json.dumps({"error": "Radio needs a music source: install "
+                                   "ytmusicapi on the server, or set lastfm_api_key "
+                                   "in the [netjammer] config.",
                                    "on": False, "available": False}))
             return
         with _radio_lock:
@@ -1271,6 +1821,151 @@ class RadioHandler(tornado.web.RequestHandler):
         self.write(json.dumps({"on": want_on, "available": self._has_key()}))
 
 
+def _find_track(core, uri):
+    """The Track object for `uri` from the tracklist (has artist metadata)."""
+    try:
+        for tl in core.tracklist.get_tl_tracks().get() or []:
+            if getattr(tl.track, "uri", None) == uri:
+                return tl.track
+    except Exception:
+        pass
+    return None
+
+
+class RadioSeedHandler(tornado.web.RequestHandler):
+    """Station steering. POST {action: add|remove|clear, kind: track|artist|genre,
+    value, label}. While any pins exist radio seeds ONLY from them; with none it
+    falls back to the songs people requested. Adding a pin turns radio on, swaps
+    out upcoming radio picks that came from other seeds, and refills right away."""
+
+    MAX_PINS = 5
+
+    def initialize(self, core, config):
+        self.core = core
+        self.config = config
+
+    def post(self):
+        self.set_header("Content-Type", "application/json")
+        try:
+            data = json.loads(self.request.body.decode() or "{}")
+        except Exception:
+            self.set_status(400)
+            self.write(json.dumps({"error": "Invalid request format"}))
+            return
+        action = (data.get("action") or "add").strip()
+        kind = (data.get("kind") or "").strip()
+        value = (data.get("value") or "").strip()[:200]
+        label = (data.get("label") or value).strip()[:200]
+
+        if action == "clear":
+            with _radio_meta_lock:
+                _radio_pins[:] = []
+            logger.info("radio: station cleared (back to auto)")
+        elif action == "remove":
+            with _radio_meta_lock:
+                _radio_pins[:] = [p for p in _radio_pins
+                                  if not (p["kind"] == kind and p["value"].lower() == value.lower())]
+            logger.info("radio: unpinned [%s] %s", kind, value)
+        elif action == "add":
+            if kind not in ("track", "artist", "genre") or not value:
+                self.set_status(400)
+                self.write(json.dumps({"error": "kind (track|artist|genre) and value are required"}))
+                return
+            if not _radio_available(self.config):
+                self.set_status(409)
+                self.write(json.dumps({"error": "Radio has no music source configured"}))
+                return
+            pin = {"kind": kind, "value": value, "label": label}
+            if kind == "track":
+                tr = _find_track(self.core, value)
+                if tr is not None:
+                    pin["artist"], pin["title"] = _seed_from_track(tr)
+                    pin["label"] = label or tr.name or value
+                else:
+                    # e.g. a History entry: we only have its display name.
+                    artist = (data.get("artist") or "").strip()
+                    title = _clean_title(label)
+                    if not artist and " - " in title:
+                        artist, title = [x.strip() for x in title.split(" - ", 1)]
+                    pin["artist"], pin["title"] = artist, title
+            with _radio_meta_lock:
+                _radio_pins[:] = [p for p in _radio_pins
+                                  if not (p["kind"] == kind and p["value"].lower() == value.lower())]
+                _radio_pins.append(pin)
+                del _radio_pins[:-self.MAX_PINS]
+                pin_keys = set(s.key for s in (_pin_seed(p) for p in _radio_pins) if s)
+            with _radio_lock:
+                _radio["on"] = True
+            # Out with the old direction: drop queued picks that came from other seeds.
+            removed = _prune_upcoming_picks(
+                self.core, lambda uri, keys: not (keys & pin_keys))
+            logger.info("radio: pinned [%s] %s; replaced %d queued pick(s)", kind, pin["label"], removed)
+            _maybe_refill_radio(self.core, self.config, force=True)
+        else:
+            self.set_status(400)
+            self.write(json.dumps({"error": "unknown action"}))
+            return
+        EventSocketHandler.broadcast({"type": "changed"})
+        with _radio_lock:
+            on = _radio["on"]
+        self.write(json.dumps({"ok": True, "on": on, "pins": _radio_pins_snapshot()}))
+
+
+class RadioFeedbackHandler(tornado.web.RequestHandler):
+    """Thumbs on radio picks. POST {uri, name, artist?, vote: up|down|none}.
+    up: the song becomes a seed (more like this). down: block the song, ban its
+    artist from radio for this session, drop it (if still queued) and anything
+    radio queued because of it. none: undo a thumbs-up."""
+
+    def initialize(self, core, config):
+        self.core = core
+        self.config = config
+
+    def post(self):
+        self.set_header("Content-Type", "application/json")
+        try:
+            data = json.loads(self.request.body.decode() or "{}")
+        except Exception:
+            self.set_status(400)
+            self.write(json.dumps({"error": "Invalid request format"}))
+            return
+        uri = (data.get("uri") or "").strip()
+        name = (data.get("name") or uri).strip()
+        vote = (data.get("vote") or "").strip()
+        if not uri or vote not in ("up", "down", "none"):
+            self.set_status(400)
+            self.write(json.dumps({"error": "uri and vote (up|down|none) are required"}))
+            return
+        tr = _find_track(self.core, uri)
+        with _radio_meta_lock:
+            artist = (_radio_pick_artist.get(uri) or data.get("artist") or "").strip()
+        title = _clean_title(name)
+        if tr is not None:
+            a, title = _seed_from_track(tr)
+            artist = artist or a
+        removed = 0
+        if vote == "up":
+            with _radio_meta_lock:
+                _radio_liked[uri] = {"name": name, "artist": artist, "title": title}
+                _radio_blocklist.pop(uri, None)
+            logger.info("radio: thumbs up %s (%s)", name, artist or "?")
+        elif vote == "none":
+            with _radio_meta_lock:
+                _radio_liked.pop(uri, None)
+        else:
+            with _radio_meta_lock:
+                _radio_liked.pop(uri, None)
+                _radio_blocklist[uri] = name
+                if _norm_artist(artist):
+                    _radio_artist_ban[_norm_artist(artist)] = artist
+            removed = _prune_upcoming_picks(
+                self.core, lambda u, keys: u == uri or uri in keys)
+            logger.info("radio: thumbs down %s; banned artist %r; removed %d", name, artist, removed)
+            _maybe_refill_radio(self.core, self.config)
+        EventSocketHandler.broadcast({"type": "changed"})
+        self.write(json.dumps({"ok": True, "vote": vote, "artist": artist, "removed": removed}))
+
+
 class RadioStateHandler(tornado.web.RequestHandler):
     """One shared-state snapshot for the frontend to poll/refresh: radio on/off,
     whether radio is available, the blocklist URIs, the URIs radio added itself
@@ -1284,10 +1979,13 @@ class RadioStateHandler(tornado.web.RequestHandler):
     def get(self):
         with _radio_lock:
             on = _radio["on"]
-        available = bool((_conf(self.config, "lastfm_api_key") or "").strip())
+        available = _radio_available(self.config)
         with _radio_meta_lock:
             blocklist = list(_radio_blocklist.keys())
             added = list(_radio_provenance.keys())
+            pins = [dict(p) for p in _radio_pins]
+            liked = list(_radio_liked.keys())
+            banned = sorted(_radio_artist_ban.values())
         try:
             seeds = _current_seed_uris(self.core, self.config)
         except Exception:
@@ -1296,6 +1994,7 @@ class RadioStateHandler(tornado.web.RequestHandler):
         self.write(json.dumps({
             "on": on, "available": available,
             "blocklist": blocklist, "added": added, "seeds": seeds,
+            "pins": pins, "liked": liked, "banned_artists": banned,
         }))
 
 
@@ -1491,6 +2190,8 @@ def party_factory(config, core):
         ("/radio", RadioHandler, {"core": core, "config": config}),
         ("/radio_state", RadioStateHandler, {"core": core, "config": config}),
         ("/radio_block", RadioBlockHandler, {"core": core}),
+        ("/radio_seed", RadioSeedHandler, {"core": core, "config": config}),
+        ("/radio_feedback", RadioFeedbackHandler, {"core": core, "config": config}),
         ("/events", EventSocketHandler),
         ("/clientlog", ClientLogHandler, {}),
         ("/logs", LogsHandler, {"core": core, "config": config}),
@@ -1523,6 +2224,9 @@ class Extension(ext.Extension):
         schema["radio_min_queue"] = config.Integer(minimum=1, optional=True)
         schema["radio_batch"] = config.Integer(minimum=1, optional=True)
         schema["radio_seed_count"] = config.Integer(minimum=1, optional=True)
+        schema["radio_source"] = config.String(optional=True)
+        schema["radio_min_duration"] = config.Integer(minimum=0, optional=True)
+        schema["radio_max_duration"] = config.Integer(minimum=0, optional=True)
         return schema
 
     def setup(self, registry):

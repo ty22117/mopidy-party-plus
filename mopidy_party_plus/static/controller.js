@@ -114,10 +114,14 @@ angular.module('partyApp', [])
     $scope.historyCount = 0;      // how many previously-played tracks the server has (for the back button)
     $scope.history = [];          // previously-played tracks, most-recent-first (for the history view)
     $scope.radioOn = false;       // radio mode (auto-queue similar songs) — party-wide
-    $scope.radioAvailable = false; // whether a Last.fm API key is configured
+    $scope.radioAvailable = false; // whether the server has a radio source (YouTube Music or Last.fm)
     $scope.radioBlock = {};       // uri -> true for songs on the Radio Blocklist (never seeded from)
     $scope.radioAdded = {};       // uri -> true for songs radio queued itself (vs user-added)
     $scope.radioSeeds = {};       // uri -> true for songs currently seeding radio (highlighted in History)
+    $scope.radioPins = [];        // station seeds: [{kind: track|artist|genre, value, label}]
+    $scope.radioLiked = {};       // uri -> true for thumbed-up radio picks
+    $scope.stationInput = { kind: 'artist', text: '' }; // the "steer radio" form
+    $scope.showStation = false;   // station panel expanded
     $scope.radioActionSeq = 0;    // bumped on every local radio/block toggle so stale in-flight polls can't revert it
 
     // Light/dark theme, toggled in the UI and remembered per device. Defaults to
@@ -833,12 +837,105 @@ angular.module('partyApp', [])
         if (seq === $scope.radioActionSeq) {
           if (typeof d.on === 'boolean') $scope.radioOn = d.on;
           $scope.radioBlock = urisToSet(d.blocklist);
+          $scope.radioPins = d.pins || [];
+          $scope.radioLiked = urisToSet(d.liked);
         }
         // Not user-toggled -- always safe to refresh.
         if (typeof d.available === 'boolean') $scope.radioAvailable = d.available;
         $scope.radioAdded = urisToSet(d.added);
         $scope.radioSeeds = urisToSet(d.seeds);
       }, function () { /* ignore transient poll failures */ });
+    };
+
+    $scope.isLiked = function (uri) {
+      return !!(uri && $scope.radioLiked[uri]);
+    };
+    $scope.isPinned = function (uri) {
+      return !!uri && $scope.radioPins.some(function (p) { return p.kind === 'track' && p.value === uri; });
+    };
+    function firstArtist(item) {
+      var a = item && item.artists;
+      return (a && a.length && a[0].name) || '';
+    }
+    function postStation(body, okMsg) {
+      $scope.radioActionSeq++;
+      return $http.post('/netjammer/radio_seed', JSON.stringify(body)).then(function (resp) {
+        var d = resp.data || {};
+        $scope.radioPins = d.pins || [];
+        if (typeof d.on === 'boolean') $scope.radioOn = d.on;
+        $scope.radioActionSeq++;
+        if (okMsg) $scope.message = ['success', okMsg];
+        $scope.refreshQueue();
+      }, function (resp) {
+        var d = (resp && resp.data) || {};
+        njlog('ERROR', 'radio station change failed (' + resp.status + ')');
+        $scope.message = ['error', d.error || 'Could not change the radio station'];
+      });
+    }
+
+    // "Radio from this song": pin a song as a station seed. Pinned seeds steer
+    // radio exclusively until removed (works for now playing, queue and history items).
+    $scope.pinSong = function (item) {
+      if (!item || !item.uri) return;
+      if ($scope.isPinned(item.uri)) {
+        $scope.removePin({ kind: 'track', value: item.uri, label: item.name });
+        return;
+      }
+      njlog('INFO', 'action: radio pin song ' + item.uri);
+      postStation({ action: 'add', kind: 'track', value: item.uri, label: item.name, artist: firstArtist(item) },
+        'Radio is now playing songs like ' + item.name);
+    };
+
+    // Steer by artist or genre from the station panel.
+    $scope.addStationSeed = function () {
+      var text = ($scope.stationInput.text || '').trim();
+      if (!text) return;
+      var kind = $scope.stationInput.kind === 'genre' ? 'genre' : 'artist';
+      njlog('INFO', 'action: radio pin ' + kind + ' ' + text);
+      postStation({ action: 'add', kind: kind, value: text, label: text },
+        'Radio station: ' + (kind === 'artist' ? 'artists like ' : '') + text).then(function () {
+        $scope.stationInput.text = '';
+      });
+    };
+
+    $scope.removePin = function (pin) {
+      njlog('INFO', 'action: radio unpin ' + pin.kind + ' ' + pin.value);
+      postStation({ action: 'remove', kind: pin.kind, value: pin.value },
+        'Removed from station: ' + (pin.label || pin.value));
+    };
+
+    $scope.clearStation = function () {
+      njlog('INFO', 'action: radio clear station');
+      postStation({ action: 'clear' }, 'Station cleared — radio follows what people request');
+    };
+
+    // Thumbs on radio picks: up = more like this (becomes a seed); down = drop it
+    // and keep that artist out of radio for the rest of the session.
+    $scope.radioVote = function (item, vote) {
+      if (!item || !item.uri) return;
+      if (vote === 'up' && $scope.isLiked(item.uri)) vote = 'none'; // toggle off
+      njlog('INFO', 'action: radio vote ' + vote + ' ' + item.uri);
+      $scope.radioActionSeq++;
+      if (vote === 'up') $scope.radioLiked[item.uri] = true;
+      else delete $scope.radioLiked[item.uri];
+      if (vote === 'down') $scope.radioBlock[item.uri] = true;
+      $http.post('/netjammer/radio_feedback', JSON.stringify({
+        uri: item.uri, name: item.name, artist: firstArtist(item), vote: vote
+      })).then(function (resp) {
+        var d = resp.data || {};
+        if (vote === 'up') {
+          $scope.message = ['success', 'Radio will play more like ' + item.name];
+        } else if (vote === 'down') {
+          $scope.message = ['success', 'Got it — no more ' + (d.artist || 'of that') + ' on radio' +
+            (d.removed ? ' (removed ' + d.removed + ' queued)' : '')];
+          $scope.refreshQueue();
+        }
+        $scope.refreshRadioState();
+      }, function (resp) {
+        njlog('ERROR', 'radio vote failed (' + resp.status + '): ' + item.uri);
+        $scope.message = ['error', 'Could not send radio feedback'];
+        $scope.refreshRadioState();
+      });
     };
 
     // Add/remove a song from the Radio Blocklist. Blocking also prunes the

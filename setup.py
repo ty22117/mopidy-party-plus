@@ -25,6 +25,7 @@ setup(
         "setuptools",
         "Mopidy >= 3.0",
         "Pykka >= 2.0.1",
+        "ytmusicapi",
     ],
     entry_points={
         "mopidy.ext": [

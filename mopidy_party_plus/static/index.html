@@ -113,13 +113,38 @@
         </div>
 
         <!-- Radio mode: auto-queue similar songs when the queue runs low -->
-        <div style="margin-top:12px; display:flex; justify-content:center; gap:8px;">
+        <div style="margin-top:12px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">
           <button type="button" class="btn btn-sm" ng-click="toggleRadio()" ng-disabled="!ready || !radioAvailable"
                   ng-class="{'btn-info active': radioOn, 'btn-secondary': !radioOn}"
-                  title="{{! radioAvailable ? 'Radio: keep the party going with similar songs' : 'Set lastfm_api_key in the config to enable Radio' }}">
+                  title="{{! radioAvailable ? 'Radio: keep the party going with similar songs' : 'Radio needs ytmusicapi installed on the server (or a lastfm_api_key)' }}">
             <span class="fas fa-tower-broadcast"></span>
             Radio {{! radioOn ? 'on' : 'off' }}
           </button>
+          <button type="button" class="btn btn-sm" ng-click="showStation = !showStation" ng-disabled="!ready || !radioAvailable"
+                  ng-class="{'btn-info': radioPins.length, 'btn-secondary': !radioPins.length, 'active': showStation}"
+                  title="Steer radio by song, artist or genre">
+            <span class="fas fa-sliders"></span>
+            {{! radioPins.length ? 'Station (' + radioPins.length + ')' : 'Station' }}
+          </button>
+          <button type="button" class="btn btn-sm" ng-click="pinSong(currentState.track)"
+                  ng-disabled="!ready || !radioAvailable || !currentState.track.uri"
+                  ng-class="{'btn-info active': isPinned(currentState.track.uri), 'btn-secondary': !isPinned(currentState.track.uri)}"
+                  title="{{! isPinned(currentState.track.uri) ? 'Radio is following this song — tap to stop' : 'Radio from this song: play more like it' }}">
+            <span class="fas fa-thumbtack"></span>
+            {{! isPinned(currentState.track.uri) ? 'Station seed' : 'Radio from this' }}
+          </button>
+          <span ng-if="isRadioAdded(currentState.track.uri)" style="display:inline-flex; gap:8px;">
+            <button type="button" class="btn btn-sm" ng-click="radioVote(currentState.track, 'up')"
+                    ng-class="{'btn-success active': isLiked(currentState.track.uri), 'btn-secondary': !isLiked(currentState.track.uri)}"
+                    title="Good pick — play more like this">
+              <span class="fas fa-thumbs-up"></span>
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" ng-click="radioVote(currentState.track, 'down')"
+                    ng-disabled="isBlocked(currentState.track.uri)"
+                    title="Bad pick — no more from this artist on radio">
+              <span class="fas fa-thumbs-down"></span>
+            </button>
+          </span>
           <button type="button" class="btn btn-sm" ng-click="toggleRadioBlock(currentState.track)"
                   ng-disabled="!ready || !currentState.track.uri"
                   ng-class="{'btn-warning active': isBlocked(currentState.track.uri), 'btn-secondary': !isBlocked(currentState.track.uri)}"
@@ -127,6 +152,36 @@
             <span class="fas fa-ban"></span>
             {{! isBlocked(currentState.track.uri) ? 'Blocked' : 'Block from radio' }}
           </button>
+        </div>
+
+        <!-- Station panel: pin songs/artists/genres to steer radio -->
+        <div class="station-panel" ng-if="showStation">
+          <div class="station-chips">
+            <small ng-if="!radioPins.length" class="station-hint">
+              Auto: radio follows the songs people request. Pin a song, artist or genre to steer it.
+            </small>
+            <span class="station-chip" ng-repeat="pin in radioPins" title="{{! pin.kind }}">
+              <span class="fas" ng-class="{'fa-music': pin.kind === 'track', 'fa-user': pin.kind === 'artist', 'fa-tag': pin.kind === 'genre'}"></span>
+              {{! pin.label || pin.value }}
+              <button type="button" class="station-chip-x" ng-click="removePin(pin)" title="Remove">
+                <span class="fas fa-xmark"></span>
+              </button>
+            </span>
+          </div>
+          <form class="station-form" ng-submit="addStationSeed()">
+            <select class="form-select form-select-sm" ng-model="stationInput.kind">
+              <option value="artist">Artist</option>
+              <option value="genre">Genre / vibe</option>
+            </select>
+            <input type="text" class="form-control form-control-sm" ng-model="stationInput.text"
+                   placeholder="{{! stationInput.kind === 'genre' ? 'e.g. 2000s pop punk' : 'e.g. Fleetwood Mac' }}">
+            <button type="submit" class="btn btn-sm btn-info" ng-disabled="!stationInput.text">Add</button>
+          </form>
+          <div ng-if="radioPins.length" style="text-align:center; margin-top:6px;">
+            <button type="button" class="btn btn-xs btn-secondary" ng-click="clearStation()">
+              <span class="fas fa-rotate-left"></span> Clear station (back to auto)
+            </button>
+          </div>
         </div>
 
         <!-- Volume Control -->
@@ -187,6 +242,18 @@
             </small>
           </span>
           <span style="white-space:nowrap;">
+            <button type="button" class="btn btn-xs" ng-if="isRadioAdded(item.track.uri)" ng-click="radioVote(item.track, 'up')"
+                    ng-class="{'active': isLiked(item.track.uri)}" title="Good pick — play more like this">
+              <span class="fas fa-thumbs-up"></span>
+            </button>
+            <button type="button" class="btn btn-xs" ng-if="isRadioAdded(item.track.uri)" ng-click="radioVote(item.track, 'down')"
+                    title="Bad pick — remove it and no more from this artist">
+              <span class="fas fa-thumbs-down"></span>
+            </button>
+            <button type="button" class="btn btn-xs" ng-click="pinSong(item.track)" ng-disabled="!radioAvailable"
+                    ng-class="{'active': isPinned(item.track.uri)}" title="Radio from this song">
+              <span class="fas fa-thumbtack"></span>
+            </button>
             <button type="button" class="btn btn-xs btn-danger" ng-click="removeFromQueue(item)" title="Remove from queue">
               <span class="fas fa-xmark"></span>
             </button>
@@ -225,6 +292,10 @@
           <span style="white-space:nowrap;">
             <button type="button" class="btn btn-xs btn-success" ng-click="requeueFromHistory(item)" title="Queue this again">
               <span class="fas fa-plus"></span>
+            </button>
+            <button type="button" class="btn btn-xs" ng-click="pinSong(item)" ng-disabled="!radioAvailable"
+                    ng-class="{'active': isPinned(item.uri)}" title="Radio from this song">
+              <span class="fas fa-thumbtack"></span>
             </button>
             <button type="button" class="btn btn-xs" ng-class="{'active': isBlocked(item.uri)}" ng-click="toggleRadioBlock(item)" title="{{! isBlocked(item.uri) ? 'On the Radio Blocklist — tap to allow' : 'Block this song from Radio' }}">
               <span class="fas fa-ban"></span>

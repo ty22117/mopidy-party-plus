@@ -392,3 +392,53 @@ input[type="range"] {
 :root.theme-dark .np-origin-user {
   color: #7ee08a;
 }
+
+/* Radio station panel: pinned seeds (song / artist / genre) that steer radio. */
+.station-panel {
+  margin-top: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-header-bg);
+}
+.station-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.station-hint {
+  color: var(--muted);
+  text-align: center;
+}
+.station-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  font-size: 0.82em;
+  background: var(--q-radio-bg);
+  color: var(--royal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.station-chip-x {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0 6px;
+  opacity: 0.7;
+  cursor: pointer;
+}
+.station-chip-x:hover { opacity: 1; }
+.station-form {
+  display: flex;
+  gap: 6px;
+}
+.station-form select { flex: 0 0 auto; width: auto; }
+.station-form input { flex: 1; min-width: 0; }
