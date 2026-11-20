@@ -1,382 +1,478 @@
 <!doctype html>
-<html ng-app="partyApp">
-	<link rel="icon" href="/netjammer/favicon.ico">
+<html ng-app="partyApp" lang="en" data-theme="listening-room">
   <head>
     <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>NETJammer</title>
+    <link id="nj-favicon" rel="icon" type="image/svg+xml" href="/netjammer/art/face.svg">
+    <link rel="alternate icon" href="/netjammer/favicon.ico">
 
-    <!-- Apply the saved theme before first paint (default: dark) to avoid a flash. -->
-    <script type="text/javascript">
-      try {
-        if (localStorage.getItem('netjammerTheme') !== 'light') {
-          document.documentElement.classList.add('theme-dark');
-        }
-      } catch (e) { document.documentElement.classList.add('theme-dark'); }
+    <!-- Apply the saved theme before first paint so the page doesn't flash. -->
+    <script>
+      (function () {
+        var t = 'listening-room', ok = ['listening-room', 'daylight', 'neon-club', 'arcade'];
+        try {
+          var s = localStorage.getItem('netjammerTheme');
+          if (s === 'light') t = 'daylight';
+          else if (ok.indexOf(s) !== -1) t = s;
+        } catch (e) { /* private mode: default theme */ }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
     </script>
 
-    <!-- <link href="vendors/bootstrap.min.css" rel="stylesheet">
-    <link href="vendors/fontawesome/css/all.min.css" rel="stylesheet">
-    <link href="{{ style }}" rel="stylesheet">
-
-    <script type="text/javascript" src="vendors/mopidy.min.js"></script>
-    <script type="text/javascript" src="vendors/angular.min.js"></script>
-    <script type="text/javascript" src="controller.js"></script> -->
-
-    <link href="/netjammer/vendors/bootstrap.min.css" rel="stylesheet">
     <link href="/netjammer/vendors/fontawesome/css/all.min.css" rel="stylesheet">
-    <link href="/netjammer/{{ style }}?v={{ version }}" rel="stylesheet">
+    <link href="/netjammer/netjammer.css?v={{ version }}" rel="stylesheet">
+    {% if style and style != 'netjammer.css' %}<link href="/netjammer/{{ style }}?v={{ version }}" rel="stylesheet">{% end %}
 
-    <script type="text/javascript" src="/netjammer/vendors/mopidy.min.js"></script>
-    <script type="text/javascript" src="/netjammer/vendors/angular.min.js"></script>
-    <script type="text/javascript" src="/netjammer/controller.js?v={{ version }}"></script>
-
+    <script src="/netjammer/vendors/mopidy.min.js"></script>
+    <script src="/netjammer/vendors/angular.min.js"></script>
+    <script src="/netjammer/art.js?v={{ version }}"></script>
+    <script src="/netjammer/controller.js?v={{ version }}"></script>
   </head>
   <body ng-controller="MainController">
-    <!-- ===== Top bar ===== -->
-    <div class="topbar">
-      <span class="topbar-left">
-        <button type="button" class="btn btn-info" ng-click="toggleQueue()" ng-disabled="!ready" ng-class="{'active': showQueue}">
-          <span class="fas fa-list-ol"></span> Queue
-          <span class="badge bg-dark" ng-if="queue.length">{{! queue.length }}</span>
-        </button>
-        <button type="button" class="btn btn-info" ng-click="toggleHistory()" ng-disabled="!ready" ng-class="{'active': showHistory}">
-          <span class="fas fa-clock-rotate-left"></span> History
-          <span class="badge bg-dark" ng-if="historyCount">{{! historyCount }}</span>
-        </button>
-      </span>
-      <strong class="topbar-title"><span class="fas fa-compact-disc"></span> NETJammer</strong>
-      <span class="topbar-right">
-        <button type="button" class="btn" ng-click="toggleTheme()" title="Toggle light/dark theme">
-          <span class="fas" ng-class="{'fa-sun': theme === 'dark', 'fa-moon': theme !== 'dark'}"></span>
-        </button>
-        <button type="button" class="btn btn-primary" ng-click="toggleSearch()" ng-disabled="!ready" ng-class="{'active': showSearch}">
-          <span class="fas fa-magnifying-glass"></span> Add Music
-        </button>
-      </span>
-    </div>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 17.6a3.4 3.4 0 1 1-2-3.1V5.2L20 2.6v12.9a3.4 3.4 0 1 1-2-3.1V7.3l-9 1.8z"/></symbol>
+      <symbol id="i-note1" viewBox="0 0 24 24"><path d="M13 3h2c.4 2.6 2.4 4 5 4.4v2.4c-2-.2-3.7-.9-5-2.1v9.3a4.1 4.1 0 1 1-2-3.5z"/></symbol>
+      <symbol id="i-note-px" viewBox="0 0 8 8" shape-rendering="crispEdges"><path d="M3 0h4v1H4v4H3zM4 1h3v1H4zM1 4h3v1H1zM0 5h4v2H0zM1 7h2v1H1z"/></symbol>
+    </svg>
 
-    <!-- ===== Now Playing ===== -->
-    <div class="np-wrap">
-      <div class="card card-body bg-light now-playing">
-        <img class="album-art" ng-if="albumArt" ng-src="{{! albumArt }}" alt="Album art">
-        <div class="album-art album-art-placeholder" ng-if="!albumArt">
-          <span class="fas fa-music"></span>
-        </div>
+    <div class="app" ng-class="{'is-playing': isPlaying()}">
 
-        <div class="np-origin" ng-if="currentState.track.uri">
-          <span class="np-origin-pill np-origin-radio" ng-if="isRadioAdded(currentState.track.uri)" title="Radio queued this song automatically">
-            <span class="fas fa-tower-broadcast"></span> Radio pick
+      <!-- ===== Header ===== -->
+      <header class="topbar">
+        <a class="brand" href="/netjammer/" aria-label="NETJammer">
+          <span class="brand-face"><img ng-src="{{! faceSrc }}" src="/netjammer/art/face.svg" alt=""></span>
+          <span class="wordmark" aria-hidden="true">
+            <span class="wm-net">NET</span><span class="wm-jam">Jammer<svg class="wm-stache" viewBox="0 0 120 18" preserveAspectRatio="none"><path d="M60 6C52 2 38 2 28 8 20 13 10 12 8 6c-2 6 4 11 14 9 12-2 26-6 38-6s26 4 38 6c10 2 16-3 14-9-2 6-12 7-20 2C82 2 68 2 60 6z"/></svg></span>
           </span>
-          <span class="np-origin-pill np-origin-user" ng-if="!isRadioAdded(currentState.track.uri)" title="Someone requested this song">
-            <span class="fas fa-user"></span> Requested
-          </span>
+        </a>
+        <div class="topbar-actions">
+          <span class="conn" ng-if="!ready" role="status"><span class="conn-dot"></span>Connecting</span>
+          <button type="button" class="radio-switch" role="switch" ng-attr-aria-checked="{{! radioOn }}"
+                  ng-click="toggleRadio()" ng-disabled="!ready || !radioAvailable"
+                  title="{{! radioAvailable ? 'Radio keeps music going when the queue runs low' : 'Radio needs ytmusicapi on the server, or a Last.fm API key' }}">
+            <span class="fas fa-tower-broadcast" aria-hidden="true"></span>
+            <span>Radio</span>
+            <span class="switch" aria-hidden="true"><span class="knob"></span></span>
+          </button>
+          <button type="button" class="icon-btn icon-btn-lg" ng-click="openSettings()" aria-label="Settings" title="Settings: theme and diagnostics" ng-attr-aria-pressed="{{! panel === 'settings' }}">
+            <span class="fas fa-gear" aria-hidden="true"></span>
+          </button>
         </div>
-        <div style="font-size:1.15em; font-weight:bold;">
-          {{! currentState.track.name }}
-        </div>
-        <div>
-          <small>
-            <span ng-if="currentState.track.artists">by</span>
-            <span ng-repeat="artist in currentState.track.artists">
-              <span ng-if="!$first"> & </span>
-              {{! artist.name }}
-            </span>
-            <span>{{! printDuration(currentState.track) }}</span>
-          </small>
+      </header>
+
+      <!-- ===== Now Playing: the guy's stage ===== -->
+      <main class="card stage" aria-labelledby="np-title">
+        <div class="scene" ng-class="{'is-playing': isPlaying()}">
+          <img id="nj-scene" class="scene-img" src="/netjammer/art/listening-room/scene.png" alt="">
+          <canvas id="nj-pixel" class="scene-pixel" aria-hidden="true"></canvas>
+          <div class="scene-fx" aria-hidden="true"></div>
+          <div class="notes" aria-hidden="true">
+            <svg class="note n1"><use href="#i-note"/></svg>
+            <svg class="note n2"><use href="#i-note1"/></svg>
+            <svg class="note n3"><use href="#i-note"/></svg>
+            <svg class="note n4"><use href="#i-note1"/></svg>
+            <svg class="note n5"><use href="#i-note"/></svg>
+            <svg class="note px p1"><use href="#i-note-px"/></svg>
+            <svg class="note px p2"><use href="#i-note-px"/></svg>
+            <svg class="note px p3"><use href="#i-note-px"/></svg>
+          </div>
+          <div class="cover">
+            <img ng-if="albumArt" ng-src="{{! albumArt }}" alt="Album art">
+            <div ng-if="!albumArt" class="cover-empty"><span class="fas fa-compact-disc" aria-hidden="true"></span></div>
+          </div>
         </div>
 
-        <!-- Playback Progress Slider -->
-        <div style="display:flex; align-items:center; gap:10px; margin-top:14px; width:100%;">
-          <small>{{! printTime(currentState.position) }}</small>
-          <input type="range" class="form-range" style="flex:1;" min="0" max="{{! currentState.track.length || 100 }}" ng-model="currentState.position" ng-change="seekTrack()" ng-mousedown="onSliderDown()" ng-mouseup="onSliderUp()" ng-disabled="!ready || currentState.length === 0 || !currentState.track.length">
-          <small>{{! printDuration(currentState.track) }}</small>
+        <div class="np">
+          <div ng-if="currentState.track.uri">
+            <h1 id="np-title" class="np-title" title="{{! currentState.track.name }}">{{! currentState.track.name }}</h1>
+            <p class="np-sub">
+              <span class="np-artist" ng-if="currentState.track.artists.length">{{! trackArtists(currentState.track) }}</span>
+              <span class="tag tag-radio" ng-if="isRadioAdded(currentState.track.uri)" title="Radio queued this song"><i class="mark"></i>Radio pick</span>
+              <span class="tag tag-user" ng-if="!isRadioAdded(currentState.track.uri)" title="Someone at the party requested this"><i class="mark"></i>Requested</span>
+            </p>
+          </div>
+          <div ng-if="!currentState.track.uri">
+            <h1 id="np-title" class="np-title">{{! ready ? 'Nothing playing yet' : 'Connecting to the music' }}</h1>
+            <p class="np-sub">{{! ready ? 'Add a song to get the party going.' : 'Hang on, finding the speakers.' }}</p>
+          </div>
+
+          <div class="seek">
+            <input type="range" class="range" aria-label="Song position" min="0" max="{{! currentState.track.length || 100 }}"
+                   ng-model="currentState.position" ng-change="seekTrack()" ng-mousedown="onSliderDown()" ng-mouseup="onSliderUp()"
+                   ng-attr-style="--fill: {{! progressPct() }}%"
+                   ng-disabled="!ready || currentState.length === 0 || !currentState.track.length">
+            <div class="seek-times"><span>{{! printTime(currentState.position) }}</span><span>{{! printTime(currentState.track.length) }}</span></div>
+          </div>
+
+          <div class="transport">
+            <button type="button" class="ctl ctl-sm" ng-click="playLastSong()" ng-disabled="!ready || currentState.length === 0"
+                    aria-label="Previous song, or restart this one" title="Previous / restart">
+              <span class="fas fa-backward-step" aria-hidden="true"></span>
+            </button>
+            {% if not hide_pause %}
+            <button type="button" class="ctl ctl-play" ng-click="togglePause()" ng-disabled="!ready || currentState.length === 0"
+                    ng-attr-aria-label="{{! isPlaying() ? 'Pause' : 'Play' }}">
+              <span class="fas" ng-class="isPlaying() ? 'fa-pause' : 'fa-play'" aria-hidden="true"></span>
+            </button>
+            {% end %}
+            {% if not hide_skip %}
+            <button type="button" class="ctl ctl-sm" ng-click="nextTrack()" ng-disabled="!ready || currentState.length === 0"
+                    aria-label="Skip to the next song" title="Skip">
+              <span class="fas fa-forward-step" aria-hidden="true"></span>
+            </button>
+            {% end %}
+          </div>
+
+          <div class="np-actions" ng-if="currentState.track.uri">
+            <button type="button" class="chip" ng-class="{'on': isPinned(currentState.track.uri)}" ng-click="pinSong(currentState.track)"
+                    ng-disabled="!ready || !radioAvailable" ng-attr-aria-pressed="{{! isPinned(currentState.track.uri) }}"
+                    title="{{! isPinned(currentState.track.uri) ? 'Radio is following this song. Tap to stop.' : 'Radio from this song: play more like it' }}">
+              <span class="fas fa-thumbtack" aria-hidden="true"></span>{{! isPinned(currentState.track.uri) ? 'Radio follows this' : 'More like this' }}
+            </button>
+            <button type="button" class="chip chip-icon" ng-if="isRadioAdded(currentState.track.uri)" ng-class="{'on': isLiked(currentState.track.uri)}"
+                    ng-click="radioVote(currentState.track, 'up')" ng-attr-aria-pressed="{{! isLiked(currentState.track.uri) }}"
+                    aria-label="Good radio pick, play more like this" title="Good pick">
+              <span class="fas fa-thumbs-up" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="chip chip-icon" ng-if="isRadioAdded(currentState.track.uri)"
+                    ng-click="radioVote(currentState.track, 'down')" ng-disabled="isBlocked(currentState.track.uri)"
+                    aria-label="Bad radio pick, no more from this artist" title="Bad pick">
+              <span class="fas fa-thumbs-down" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="chip" ng-class="{'warn': isBlocked(currentState.track.uri)}" ng-click="toggleRadioBlock(currentState.track)"
+                    ng-disabled="!ready" ng-attr-aria-pressed="{{! isBlocked(currentState.track.uri) }}"
+                    title="{{! isBlocked(currentState.track.uri) ? 'On the Radio blocklist. Tap to allow it again.' : 'Stop Radio playing songs like this, and drop the ones it queued from it' }}">
+              <span class="fas fa-ban" aria-hidden="true"></span>{{! isBlocked(currentState.track.uri) ? 'Blocked from Radio' : 'Block from Radio' }}
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <!-- ===== Add a song ===== -->
+      <section class="card add" aria-labelledby="add-h">
+        <h2 id="add-h">Add a song</h2>
+        <form class="searchbar" role="search" ng-submit="submitSearch()">
+          <span class="fas fa-magnifying-glass" aria-hidden="true"></span>
+          <input id="search-input" type="search" ng-model="searchField" placeholder="Song or artist"
+                 aria-label="Search for a song" autocomplete="off" ng-disabled="!ready">
+          <button type="submit" class="btn btn-action" ng-disabled="!ready">Search</button>
+        </form>
+        <div class="add-links">
+          <button type="button" class="link" ng-click="browseLibrary()" ng-disabled="!ready">
+            <span class="fas fa-folder-open" aria-hidden="true"></span>Browse the library
+          </button>
+          <button type="button" class="link" ng-click="showPlaylist = !showPlaylist" ng-attr-aria-expanded="{{! showPlaylist }}" aria-controls="playlist-form">
+            <span class="fas fa-link" aria-hidden="true"></span>Add a playlist link
+          </button>
+        </div>
+        <form id="playlist-form" class="playlist" ng-show="showPlaylist" ng-submit="addPlaylist()">
+          <input type="url" class="field" ng-model="playlistUrl" placeholder="Paste a YouTube or Spotify playlist or album link"
+                 aria-label="Playlist or album link" ng-disabled="!ready">
+          <button type="submit" class="btn btn-quiet" ng-disabled="!ready || !playlistUrl">Add all</button>
+        </form>
+      </section>
+
+      <!-- ===== Volume ===== -->
+      <section class="card volume" aria-labelledby="vol-h">
+        <div class="vol-head">
+          <h2 id="vol-h">Volume</h2>
+          <output class="vol-num" for="vol-range" aria-live="off">{{! currentState.volume }}<small>%</small></output>
+        </div>
+        <div class="vol-row">
+          <button type="button" class="ctl ctl-xs" ng-click="volumeStep(-5)" ng-disabled="!ready" aria-label="Turn the volume down">
+            <span class="fas fa-minus" aria-hidden="true"></span>
+          </button>
+          <input id="vol-range" type="range" class="range range-lg" min="0" max="100" ng-model="currentState.volume" ng-change="setVolume()"
+                 ng-disabled="!ready" aria-label="Volume" ng-attr-style="--fill: {{! currentState.volume }}%">
+          <button type="button" class="ctl ctl-xs" ng-click="volumeStep(5)" ng-disabled="!ready" aria-label="Turn the volume up">
+            <span class="fas fa-plus" aria-hidden="true"></span>
+          </button>
+        </div>
+        <p class="hint">One volume for the whole room.</p>
+      </section>
+
+      <!-- ===== Lists: Up next / Radio / History / Settings / Results ===== -->
+      <section id="panel" class="card panel" aria-label="Lists">
+        <div class="panel-head" ng-if="panel !== 'results' && panel !== 'settings'">
+          <div class="tabs" role="tablist" aria-label="Lists">
+            <button type="button" role="tab" ng-attr-aria-selected="{{! panel === 'queue' }}" ng-class="{'on': panel === 'queue'}" ng-click="showPanel('queue')">
+              Up next <span class="count" ng-if="queue.length">{{! queue.length }}</span>
+            </button>
+            <button type="button" role="tab" ng-attr-aria-selected="{{! panel === 'radio' }}" ng-class="{'on': panel === 'radio'}" ng-click="showPanel('radio')">
+              Radio <span class="state-dot" ng-class="{'on': radioOn}" title="{{! radioOn ? 'Radio is on' : 'Radio is off' }}"></span>
+            </button>
+            <button type="button" role="tab" ng-attr-aria-selected="{{! panel === 'history' }}" ng-class="{'on': panel === 'history'}" ng-click="showPanel('history')">
+              History <span class="count" ng-if="historyCount">{{! historyCount }}</span>
+            </button>
+          </div>
+          <div class="panel-tools" ng-if="panel === 'queue'">
+            <button type="button" class="icon-btn" ng-click="refreshQueue()" aria-label="Refresh the queue" title="Refresh">
+              <span class="fas fa-rotate-right" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="btn btn-quiet btn-sm" ng-class="{'btn-danger': confirmClear}" ng-click="askClearQueue()" ng-disabled="!queue.length">
+              <span class="fas fa-trash" aria-hidden="true"></span>{{! confirmClear ? 'Clear all ' + queue.length + '?' : 'Clear' }}
+            </button>
+          </div>
+          <div class="panel-tools" ng-if="panel === 'history'">
+            <button type="button" class="icon-btn" ng-click="refreshHistory()" aria-label="Refresh history" title="Refresh">
+              <span class="fas fa-rotate-right" aria-hidden="true"></span>
+            </button>
+          </div>
         </div>
 
-        <!-- Transport controls: back / play-pause / skip -->
-        <div style="margin-top:14px; display:flex; justify-content:center; gap:10px;">
-          <button type="button" class="btn btn-secondary" ng-model="button" ng-click="playLastSong()" ng-disabled="!ready || currentState.length === 0" title="Previous / restart song">
-            <span class="fas fa-step-backward"></span>
+        <div class="panel-head results-head" ng-if="panel === 'settings'">
+          <button type="button" class="icon-btn" ng-click="showPanel('queue')" aria-label="Back to Up next" title="Back to Up next">
+            <span class="fas fa-arrow-left" aria-hidden="true"></span>
           </button>
-          {% if not hide_pause %}
-            <button type="button" class="btn" ng-model="button" ng-click="togglePause()" ng-disabled="!ready || currentState.length === 0" ng-class="{'btn-success' : currentState.state !== 'playing', 'btn-danger': currentState.state === 'playing'}">
-              <span class="fas" ng-class="{'fa-play': currentState.state !== 'playing', 'fa-pause' : currentState.state === 'playing'}"></span>
-            </button>
-          {% end %}
-          {% if not hide_skip %}
-            <button type="button" class="btn btn-primary" ng-model="button" ng-click="nextTrack()" ng-disabled="!ready || currentState.length === 0" title="Skip to next track">
-              <span class="fas fa-step-forward"></span>
-            </button>
-          {% end %}
+          <h2 class="results-title">Settings</h2>
         </div>
 
-        <!-- Radio mode: auto-queue similar songs when the queue runs low -->
-        <div style="margin-top:12px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="btn btn-sm" ng-click="toggleRadio()" ng-disabled="!ready || !radioAvailable"
-                  ng-class="{'btn-info active': radioOn, 'btn-secondary': !radioOn}"
-                  title="{{! radioAvailable ? 'Radio: keep the party going with similar songs' : 'Radio needs ytmusicapi installed on the server (or a lastfm_api_key)' }}">
-            <span class="fas fa-tower-broadcast"></span>
-            Radio {{! radioOn ? 'on' : 'off' }}
+        <div class="panel-head results-head" ng-if="panel === 'results'">
+          <button type="button" class="icon-btn" ng-click="showPanel('queue')" aria-label="Back to Up next" title="Back to Up next">
+            <span class="fas fa-arrow-left" aria-hidden="true"></span>
           </button>
-          <button type="button" class="btn btn-sm" ng-click="showStation = !showStation" ng-disabled="!ready || !radioAvailable"
-                  ng-class="{'btn-info': radioPins.length, 'btn-secondary': !radioPins.length, 'active': showStation}"
-                  title="Steer radio by song, artist or genre">
-            <span class="fas fa-sliders"></span>
-            {{! radioPins.length ? 'Station (' + radioPins.length + ')' : 'Station' }}
-          </button>
-          <button type="button" class="btn btn-sm" ng-click="pinSong(currentState.track)"
-                  ng-disabled="!ready || !radioAvailable || !currentState.track.uri"
-                  ng-class="{'btn-info active': isPinned(currentState.track.uri), 'btn-secondary': !isPinned(currentState.track.uri)}"
-                  title="{{! isPinned(currentState.track.uri) ? 'Radio is following this song — tap to stop' : 'Radio from this song: play more like it' }}">
-            <span class="fas fa-thumbtack"></span>
-            {{! isPinned(currentState.track.uri) ? 'Station seed' : 'Radio from this' }}
-          </button>
-          <span ng-if="isRadioAdded(currentState.track.uri)" style="display:inline-flex; gap:8px;">
-            <button type="button" class="btn btn-sm" ng-click="radioVote(currentState.track, 'up')"
-                    ng-class="{'btn-success active': isLiked(currentState.track.uri), 'btn-secondary': !isLiked(currentState.track.uri)}"
-                    title="Good pick — play more like this">
-              <span class="fas fa-thumbs-up"></span>
-            </button>
-            <button type="button" class="btn btn-sm btn-secondary" ng-click="radioVote(currentState.track, 'down')"
-                    ng-disabled="isBlocked(currentState.track.uri)"
-                    title="Bad pick — no more from this artist on radio">
-              <span class="fas fa-thumbs-down"></span>
-            </button>
-          </span>
-          <button type="button" class="btn btn-sm" ng-click="toggleRadioBlock(currentState.track)"
-                  ng-disabled="!ready || !currentState.track.uri"
-                  ng-class="{'btn-warning active': isBlocked(currentState.track.uri), 'btn-secondary': !isBlocked(currentState.track.uri)}"
-                  title="{{! isBlocked(currentState.track.uri) ? 'This song is on the Radio Blocklist — tap to allow it again' : 'Block this song from Radio (stop seeding from it and remove similar queued songs)' }}">
-            <span class="fas fa-ban"></span>
-            {{! isBlocked(currentState.track.uri) ? 'Blocked' : 'Block from radio' }}
-          </button>
+          <h2 class="results-title">{{! lastQuery ? 'Results for “' + lastQuery + '”' : 'Library' }}</h2>
+          <span class="results-count" ng-if="!searching && tracks.length">{{! tracks.length }} song{{! tracks.length !== 1 ? 's' : '' }}</span>
         </div>
 
-        <!-- Station panel: pin songs/artists/genres to steer radio -->
-        <div class="station-panel" ng-if="showStation">
-          <div class="station-chips">
-            <small ng-if="!radioPins.length" class="station-hint">
-              Auto: radio follows the songs people request. Pin a song, artist or genre to steer it.
-            </small>
-            <span class="station-chip" ng-repeat="pin in radioPins" title="{{! pin.kind }}">
-              <span class="fas" ng-class="{'fa-music': pin.kind === 'track', 'fa-user': pin.kind === 'artist', 'fa-tag': pin.kind === 'genre'}"></span>
-              {{! pin.label || pin.value }}
-              <button type="button" class="station-chip-x" ng-click="removePin(pin)" title="Remove">
-                <span class="fas fa-xmark"></span>
+        <div class="panel-body" role="tabpanel">
+
+          <!-- Up next -->
+          <div ng-if="panel === 'queue'">
+            <ol class="rows" ng-show="queue.length" dnd-sortable="queue" dnd-on-sort="onQueueSorted($from, $to)">
+              <li class="row qrow" ng-repeat="item in queue track by item.tlid" data-sortable-item
+                  ng-class="{'is-radio': isRadioAdded(item.track.uri), 'fresh': isFresh(item), 'open': rowOpen}">
+                <span class="drag-handle" title="Drag to reorder" aria-hidden="true"><span class="fas fa-grip-vertical"></span></span>
+                <span class="row-num">{{! $index + 1 }}</span>
+                <span class="row-main">
+                  <span class="row-title">{{! item.track.name }}</span>
+                  <span class="row-sub">
+                    <span class="origin" ng-class="isRadioAdded(item.track.uri) ? 'origin-radio' : 'origin-user'"><i class="mark"></i>{{! isRadioAdded(item.track.uri) ? 'Radio' : 'Requested' }}</span>
+                    <span class="row-artist" ng-if="item.track.artists.length">{{! trackArtists(item.track) }}</span>
+                  </span>
+                </span>
+                <span class="row-dur">{{! printTime(item.track.length) }}</span>
+                <button type="button" class="icon-btn row-more" ng-click="rowOpen = !rowOpen" ng-attr-aria-expanded="{{! !!rowOpen }}"
+                        aria-label="Actions for {{! item.track.name }}" title="More">
+                  <span class="fas fa-ellipsis" aria-hidden="true"></span>
+                </button>
+                <span class="row-acts">
+                  <button type="button" class="icon-btn" ng-if="isRadioAdded(item.track.uri)" ng-class="{'on': isLiked(item.track.uri)}" ng-click="radioVote(item.track, 'up')"
+                          ng-attr-aria-pressed="{{! isLiked(item.track.uri) }}" aria-label="Good pick: {{! item.track.name }}" title="Good pick, more like this">
+                    <span class="fas fa-thumbs-up" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="icon-btn" ng-if="isRadioAdded(item.track.uri)" ng-click="radioVote(item.track, 'down')"
+                          aria-label="Bad pick: {{! item.track.name }}" title="Bad pick: remove it and no more from this artist">
+                    <span class="fas fa-thumbs-down" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="icon-btn" ng-click="pinSong(item.track)" ng-disabled="!radioAvailable" ng-class="{'on': isPinned(item.track.uri)}"
+                          ng-attr-aria-pressed="{{! isPinned(item.track.uri) }}" aria-label="Radio from {{! item.track.name }}" title="Radio from this song">
+                    <span class="fas fa-thumbtack" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="icon-btn" ng-click="moveUp(item)" ng-disabled="$first" aria-label="Move {{! item.track.name }} up" title="Move up">
+                    <span class="fas fa-arrow-up" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="icon-btn" ng-click="moveDown(item)" ng-disabled="$last" aria-label="Move {{! item.track.name }} down" title="Move down">
+                    <span class="fas fa-arrow-down" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="icon-btn danger" ng-click="removeFromQueue(item)" aria-label="Remove {{! item.track.name }}" title="Remove from the queue">
+                    <span class="fas fa-xmark" aria-hidden="true"></span>
+                  </button>
+                </span>
+              </li>
+            </ol>
+
+            <div class="empty" ng-if="!queue.length && radioOn">
+              <div class="empty-face thinking"><img ng-src="{{! faceSrc }}" alt=""><span class="waves" aria-hidden="true"><i></i><i></i><i></i></span></div>
+              <h3>Radio is picking the next songs</h3>
+              <p>They'll show up here in a moment. Add a song any time to jump the line.</p>
+            </div>
+            <div class="empty" ng-if="!queue.length && !radioOn">
+              <div class="empty-face"><img ng-src="{{! faceSrc }}" alt=""></div>
+              <h3>Nothing queued yet</h3>
+              <p>Search for a song above{{! radioAvailable ? ', or turn on Radio and it will keep the music going' : '' }}.</p>
+              <button type="button" class="btn btn-action" ng-if="radioAvailable" ng-click="toggleRadio()" ng-disabled="!ready">
+                <span class="fas fa-tower-broadcast" aria-hidden="true"></span>Turn on Radio
               </button>
-            </span>
+            </div>
           </div>
-          <form class="station-form" ng-submit="addStationSeed()">
-            <select class="form-select form-select-sm" ng-model="stationInput.kind">
-              <option value="artist">Artist</option>
-              <option value="genre">Genre / vibe</option>
-            </select>
-            <input type="text" class="form-control form-control-sm" ng-model="stationInput.text"
-                   placeholder="{{! stationInput.kind === 'genre' ? 'e.g. 2000s pop punk' : 'e.g. Fleetwood Mac' }}">
-            <button type="submit" class="btn btn-sm btn-info" ng-disabled="!stationInput.text">Add</button>
-          </form>
-          <div ng-if="radioPins.length" style="text-align:center; margin-top:6px;">
-            <button type="button" class="btn btn-xs btn-secondary" ng-click="clearStation()">
-              <span class="fas fa-rotate-left"></span> Clear station (back to auto)
-            </button>
+
+          <!-- Search results / library -->
+          <div ng-if="panel === 'results'">
+            <div class="searching" ng-if="searching" role="status">
+              <span>Searching</span>
+              <span class="src" ng-repeat="source in searchingSources"><span class="{{! getFontAwesomeIcon(source) }}" aria-hidden="true"></span>{{! source }}</span>
+            </div>
+            <ul class="rows" ng-show="tracks.length">
+              <li class="row rrow" ng-repeat="track in tracks track by track.uri">
+                <button type="button" class="add-btn" ng-click="addTrack(track)" ng-disabled="track.disabled"
+                        aria-label="{{! track.disabled ? track.name + ' is in the queue' : 'Add ' + track.name + ' to the queue' }}"
+                        title="{{! track.disabled ? 'In the queue' : 'Add to the queue' }}">
+                  <span class="fas" ng-class="track.disabled ? 'fa-check' : 'fa-plus'" aria-hidden="true"></span>
+                </button>
+                <span class="row-main">
+                  <span class="row-title">{{! track.name }}</span>
+                  <span class="row-sub"><span class="row-artist">{{! trackArtists(track) }}<span ng-if="track.album.name && trackArtists(track)"> · </span>{{! track.album.name }}</span></span>
+                </span>
+                <span class="row-dur">{{! printTime(track.length) }}</span>
+                <span class="source" title="From {{! getTrackSource(track) }}">
+                  <span class="{{! getFontAwesomeIcon(getTrackSource(track)) }}" aria-hidden="true"></span><span class="source-name">{{! getTrackSource(track) }}</span>
+                </span>
+              </li>
+            </ul>
+            <div class="skeleton" ng-if="(searching || loading) && !tracks.length" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <div class="empty" ng-if="!searching && !loading && !tracks.length">
+              <div class="empty-face"><img ng-src="{{! faceSrc }}" alt=""><span class="fas fa-magnifying-glass empty-badge" aria-hidden="true"></span></div>
+              <h3>{{! lastQuery ? 'No songs found' : 'The library is empty' }}</h3>
+              <p>{{! lastQuery ? 'Try fewer words, or check the spelling of the artist.' : 'Search for a song instead; YouTube has nearly everything.' }}</p>
+            </div>
+            <div class="more" ng-show="tracksToLookup.length">
+              <button type="button" class="btn btn-quiet" ng-click="lookupOnePageOfTracks()">Show more songs</button>
+            </div>
+          </div>
+
+          <!-- Radio -->
+          <div ng-if="panel === 'radio'" class="radio-panel">
+            <div class="radio-hero">
+              <div>
+                <h2>Radio is {{! radioOn ? 'on' : 'off' }}</h2>
+                <p>When the queue runs low, Radio adds songs like the ones people are requesting.</p>
+                <p class="notice" ng-if="!radioAvailable"><span class="fas fa-circle-info" aria-hidden="true"></span>Radio needs ytmusicapi installed on the server, or a Last.fm API key.</p>
+              </div>
+              <button type="button" class="switch-lg" role="switch" ng-attr-aria-checked="{{! radioOn }}" ng-click="toggleRadio()"
+                      ng-disabled="!ready || !radioAvailable" aria-label="Radio">
+                <span class="knob"></span>
+              </button>
+            </div>
+
+            <div class="block">
+              <h3>Steer the station</h3>
+              <p class="hint" ng-if="!radioPins.length">Right now Radio follows what people request. Add an artist, a genre or a song to steer it.</p>
+              <ul class="pins" ng-if="radioPins.length">
+                <li class="pin" ng-repeat="pin in radioPins">
+                  <span class="fas" ng-class="{'fa-music': pin.kind === 'track', 'fa-user': pin.kind === 'artist', 'fa-tag': pin.kind === 'genre'}" aria-hidden="true"></span>
+                  <span class="pin-label">{{! pin.label || pin.value }}</span>
+                  <button type="button" class="pin-x" ng-click="removePin(pin)" aria-label="Remove {{! pin.label || pin.value }} from the station">
+                    <span class="fas fa-xmark" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ul>
+              <form class="station-form" ng-submit="addStationSeed()">
+                <div class="seg" role="radiogroup" aria-label="Steer by">
+                  <button type="button" role="radio" ng-attr-aria-checked="{{! stationInput.kind === 'artist' }}" ng-click="stationInput.kind = 'artist'">Artist</button>
+                  <button type="button" role="radio" ng-attr-aria-checked="{{! stationInput.kind === 'genre' }}" ng-click="stationInput.kind = 'genre'">Genre or vibe</button>
+                </div>
+                <input type="text" class="field" ng-model="stationInput.text" aria-label="{{! stationInput.kind === 'genre' ? 'Genre or vibe' : 'Artist' }}"
+                       placeholder="{{! stationInput.kind === 'genre' ? 'e.g. 2000s pop punk' : 'e.g. Fleetwood Mac' }}" ng-disabled="!radioAvailable">
+                <button type="submit" class="btn btn-action" ng-disabled="!stationInput.text || !radioAvailable">Add</button>
+              </form>
+              <button type="button" class="link" ng-if="radioPins.length" ng-click="clearStation()">
+                <span class="fas fa-rotate-left" aria-hidden="true"></span>Clear the station, back to automatic
+              </button>
+            </div>
+
+            <div class="block">
+              <h3>Kept off Radio</h3>
+              <p class="hint" ng-if="!radioBannedArtists.length && !blockedCount()">Nothing yet. Thumb down a Radio pick or block a song to keep it off.</p>
+              <div ng-if="radioBannedArtists.length">
+                <h4>Artists, for this session</h4>
+                <ul class="pins"><li class="pin pin-muted" ng-repeat="a in radioBannedArtists"><span class="fas fa-user-slash" aria-hidden="true"></span>{{! a }}</li></ul>
+              </div>
+              <div ng-if="blockedCount()">
+                <h4>Songs</h4>
+                <ul class="rows">
+                  <li class="row" ng-repeat="item in blockedHistory() track by item.uri">
+                    <span class="row-main"><span class="row-title">{{! item.name }}</span></span>
+                    <button type="button" class="btn btn-quiet btn-sm" ng-click="toggleRadioBlock(item)">Allow again</button>
+                  </li>
+                </ul>
+                <p class="hint" ng-if="blockedCount() > blockedHistory().length">
+                  {{! blockedCount() - blockedHistory().length }} more blocked song{{! blockedCount() - blockedHistory().length !== 1 ? 's are' : ' is' }} no longer in History.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- History -->
+          <div ng-if="panel === 'history'">
+            <ol class="rows" ng-show="history.length">
+              <li class="row hrow" ng-repeat="item in history track by $index" ng-class="{'is-seed': isRadioSeed(item.uri), 'is-blocked': isBlocked(item.uri)}">
+                <span class="row-main">
+                  <span class="row-title">{{! item.name }}</span>
+                  <span class="row-sub" ng-if="isRadioSeed(item.uri) || isBlocked(item.uri)">
+                    <span class="origin origin-seed" ng-if="isRadioSeed(item.uri)"><i class="mark"></i>Steering Radio now</span>
+                    <span class="origin origin-blocked" ng-if="isBlocked(item.uri)"><span class="fas fa-ban" aria-hidden="true"></span>Blocked from Radio</span>
+                  </span>
+                </span>
+                <span class="row-acts always">
+                  <button type="button" class="btn btn-quiet btn-sm" ng-click="requeueFromHistory(item)" aria-label="Queue {{! item.name }} again">
+                    <span class="fas fa-plus" aria-hidden="true"></span>Queue again
+                  </button>
+                  <button type="button" class="icon-btn" ng-click="pinSong(item)" ng-disabled="!radioAvailable" ng-class="{'on': isPinned(item.uri)}"
+                          ng-attr-aria-pressed="{{! isPinned(item.uri) }}" aria-label="Radio from {{! item.name }}" title="Radio from this song">
+                    <span class="fas fa-thumbtack" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="icon-btn" ng-click="toggleRadioBlock(item)" ng-class="{'warn': isBlocked(item.uri)}"
+                          ng-attr-aria-pressed="{{! isBlocked(item.uri) }}"
+                          aria-label="{{! isBlocked(item.uri) ? 'Allow ' + item.name + ' on Radio again' : 'Block ' + item.name + ' from Radio' }}"
+                          title="{{! isBlocked(item.uri) ? 'Blocked from Radio. Tap to allow.' : 'Block from Radio' }}">
+                    <span class="fas fa-ban" aria-hidden="true"></span>
+                  </button>
+                </span>
+              </li>
+            </ol>
+            <div class="empty" ng-if="!history.length">
+              <div class="empty-face"><img ng-src="{{! faceSrc }}" alt=""></div>
+              <h3>Nothing has played yet</h3>
+              <p>Songs show up here once they finish, so you can queue a favourite again.</p>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div ng-if="panel === 'settings'" class="settings">
+            <div class="block">
+              <h3>Theme</h3>
+              <p class="hint">Only changes this browser.</p>
+              <div class="themes" role="radiogroup" aria-label="Theme">
+                <button type="button" class="theme-card" ng-repeat="t in themes" role="radio" ng-attr-aria-checked="{{! theme === t.id }}"
+                        ng-click="setTheme(t.id)" data-preview="{{! t.id }}">
+                  <span class="theme-swatch" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="theme-name">{{! t.label }}</span>
+                  <span class="theme-blurb">{{! t.blurb }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="block">
+              <h3>Something not working?</h3>
+              <p class="hint">Make the problem happen once more, then download the diagnostics log and send it to the host.</p>
+              <button type="button" class="btn btn-quiet" ng-click="downloadLogs()">
+                <span class="fas fa-download" aria-hidden="true"></span>Download diagnostics log
+              </button>
+            </div>
+            <p class="fine">Shortcuts: <kbd>/</kbd> to search, <kbd>Space</kbd> to play or pause. NETJammer {{ version }}</p>
           </div>
         </div>
-
-        <!-- Volume Control -->
-        <div style="display:flex; align-items:center; gap:10px; margin-top:14px; width:100%;">
-          <span class="fas fa-volume-low"></span>
-          <input type="range" class="form-range" style="flex:1;" min="0" max="100" ng-model="currentState.volume" ng-change="setVolume()" ng-disabled="!ready">
-          <span class="fas fa-volume-high"></span>
-          <small>{{! currentState.volume }}%</small>
-        </div>
-      </div>
+      </section>
     </div>
 
-    <!-- ===== Toast message (always visible, above drawers) ===== -->
-    <div class="alert toast-message" role="alert" ng-show="message.length" ng-class="{'alert-success' : (message[0] == 'success'), 'alert-danger' : (message[0] == 'error')}">
-      {{! message[1] }}
-    </div>
+    <!-- ===== Phone dock: search and the queue within thumb reach ===== -->
+    <nav class="dock" aria-label="Quick actions">
+      <button type="button" class="btn btn-action dock-add" ng-click="focusSearch()" ng-disabled="!ready">
+        <span class="fas fa-magnifying-glass" aria-hidden="true"></span>Add a song
+      </button>
+      <button type="button" class="btn btn-quiet dock-list" ng-click="goToList('queue')">
+        Up next <span class="count" ng-if="queue.length">{{! queue.length }}</span>
+      </button>
+    </nav>
 
-    <!-- ===== Drawer backdrop ===== -->
-    <div class="drawer-backdrop" ng-show="showQueue || showSearch || showHistory" ng-click="closeDrawers()"></div>
-
-    <!-- ===== Queue drawer (left) ===== -->
-    <div class="drawer drawer-left" ng-class="{'open': showQueue}">
-      <div class="drawer-header">
-        <span><span class="fas fa-list-ol"></span> Up next <small>({{! queue.length }} track{{! queue.length != 1 ? 's' : '' }})</small></span>
-        <span style="white-space:nowrap;">
-          <button type="button" class="btn btn-xs" ng-click="refreshQueue()" title="Refresh queue">
-            <span class="fas fa-rotate-right"></span>
-          </button>
-          <button type="button" class="btn btn-xs btn-danger" ng-click="clearQueue()" ng-disabled="queue.length === 0" title="Clear the whole queue">
-            <span class="fas fa-trash"></span> Clear
-          </button>
-          <button type="button" class="btn btn-xs" ng-click="closeDrawers()" title="Close">
-            <span class="fas fa-xmark"></span>
-          </button>
-        </span>
-      </div>
-      <ul class="list-group list-group-flush" dnd-sortable="queue" dnd-on-sort="onQueueSorted($from, $to)">
-        <li class="list-group-item" ng-repeat="item in queue" data-sortable-item style="display:flex; align-items:center; gap:8px;"
-            ng-class="{'queue-radio': isRadioAdded(item.track.uri), 'queue-user': !isRadioAdded(item.track.uri)}">
-          <span class="drag-handle" title="Drag to reorder">
-            <span class="fas fa-grip-vertical"></span>
-          </span>
-          <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
-          <span class="origin-badge" ng-if="isRadioAdded(item.track.uri)" title="Added by Radio">
-            <span class="fas fa-tower-broadcast"></span>
-          </span>
-          <span class="origin-badge origin-user" ng-if="!isRadioAdded(item.track.uri)" title="Added by someone">
-            <span class="fas fa-user"></span>
-          </span>
-          <span style="flex:1;">
-            {{! item.track.name }} <small>{{! printDuration(item.track) }}</small>
-            <small>
-              <span ng-if="item.track.artists">by</span>
-              <span ng-repeat="artist in item.track.artists">
-                <span ng-if="!$first"> & </span>
-                {{! artist.name }}
-              </span>
-            </small>
-          </span>
-          <span style="white-space:nowrap;">
-            <button type="button" class="btn btn-xs" ng-if="isRadioAdded(item.track.uri)" ng-click="radioVote(item.track, 'up')"
-                    ng-class="{'active': isLiked(item.track.uri)}" title="Good pick — play more like this">
-              <span class="fas fa-thumbs-up"></span>
-            </button>
-            <button type="button" class="btn btn-xs" ng-if="isRadioAdded(item.track.uri)" ng-click="radioVote(item.track, 'down')"
-                    title="Bad pick — remove it and no more from this artist">
-              <span class="fas fa-thumbs-down"></span>
-            </button>
-            <button type="button" class="btn btn-xs" ng-click="pinSong(item.track)" ng-disabled="!radioAvailable"
-                    ng-class="{'active': isPinned(item.track.uri)}" title="Radio from this song">
-              <span class="fas fa-thumbtack"></span>
-            </button>
-            <button type="button" class="btn btn-xs btn-danger" ng-click="removeFromQueue(item)" title="Remove from queue">
-              <span class="fas fa-xmark"></span>
-            </button>
-          </span>
-        </li>
-        <li class="list-group-item" ng-if="queue.length === 0">
-          <small>The queue is empty. Add some songs!</small>
-        </li>
-      </ul>
-    </div>
-
-    <!-- ===== History drawer (left) ===== -->
-    <div class="drawer drawer-left" ng-class="{'open': showHistory}">
-      <div class="drawer-header">
-        <span><span class="fas fa-clock-rotate-left"></span> Played <small>({{! history.length }} track{{! history.length != 1 ? 's' : '' }})</small></span>
-        <span style="white-space:nowrap;">
-          <button type="button" class="btn btn-xs" ng-click="refreshHistory()" title="Refresh history">
-            <span class="fas fa-rotate-right"></span>
-          </button>
-          <button type="button" class="btn btn-xs" ng-click="closeDrawers()" title="Close">
-            <span class="fas fa-xmark"></span>
-          </button>
-        </span>
-      </div>
-      <div class="history-legend" ng-if="history.length">
-        <span class="history-seed-dot"></span> = currently seeding Radio
-      </div>
-      <ul class="list-group list-group-flush">
-        <li class="list-group-item" ng-repeat="item in history" style="display:flex; align-items:center; gap:8px;"
-            ng-class="{'history-seed': isRadioSeed(item.uri)}">
-          <span style="opacity:0.5; min-width:1.6em; text-align:right;">{{! $index + 1 }}.</span>
-          <span class="origin-badge" ng-if="isRadioSeed(item.uri)" title="This song is seeding Radio right now">
-            <span class="fas fa-tower-broadcast"></span>
-          </span>
-          <span style="flex:1;" ng-class="{'blocked-song': isBlocked(item.uri)}">{{! item.name }}</span>
-          <span style="white-space:nowrap;">
-            <button type="button" class="btn btn-xs btn-success" ng-click="requeueFromHistory(item)" title="Queue this again">
-              <span class="fas fa-plus"></span>
-            </button>
-            <button type="button" class="btn btn-xs" ng-click="pinSong(item)" ng-disabled="!radioAvailable"
-                    ng-class="{'active': isPinned(item.uri)}" title="Radio from this song">
-              <span class="fas fa-thumbtack"></span>
-            </button>
-            <button type="button" class="btn btn-xs" ng-class="{'active': isBlocked(item.uri)}" ng-click="toggleRadioBlock(item)" title="{{! isBlocked(item.uri) ? 'On the Radio Blocklist — tap to allow' : 'Block this song from Radio' }}">
-              <span class="fas fa-ban"></span>
-            </button>
-          </span>
-        </li>
-        <li class="list-group-item" ng-if="history.length === 0">
-          <small>Nothing has played yet.</small>
-        </li>
-      </ul>
-    </div>
-
-    <!-- ===== Search drawer (right) ===== -->
-    <div class="drawer drawer-right" ng-class="{'open': showSearch}">
-      <div class="drawer-header">
-        <span><span class="fas fa-magnifying-glass"></span> Add Music</span>
-        <button type="button" class="btn btn-xs" ng-click="closeDrawers()" title="Close">
-          <span class="fas fa-xmark"></span>
-        </button>
-      </div>
-
-      <form ng-submit="search()">
-        <input type="text" role="search" class="form-control" placeholder="Search for songs to add..." ng-model="searchField" ng-disabled="!ready">
-      </form>
-      <div class="input-group" style="margin-top:10px;">
-        <input type="text" class="form-control" placeholder="Paste YouTube/Spotify playlist or album URL..." ng-model="playlistUrl" ng-disabled="!ready">
-        <button class="btn btn-primary" type="button" ng-click="addPlaylist()" ng-disabled="!ready || !playlistUrl">
-          <span class="fas fa-plus"></span> Add
-        </button>
-      </div>
-
-      <ul class="list-group" style="margin-top:16px">
-        <li class="list-group-item" ng-repeat="track in tracks">
-          <button type="button" class="btn btn-xs btn-success add-button" ng-model="button" ng-click="addTrack(track)" ng-disabled="track.disabled">
-            <span class="fas fa-play" ng-if="!track.disabled"></span>
-            <span class="fas fa-check" ng-if="track.disabled"></span>
-          </button>
-          {{! track.name }} <small>{{! printDuration(track) }}</small><br>
-          <small>
-            {{! track.album.name }}
-            <span ng-if="track.artists">by</span>
-            <span ng-repeat="artist in track.artists">
-              <span ng-if="!$first"> & </span>
-              {{! artist.name }}
-            </span>
-            <span class="tracksource">
-              {{! getTrackSource(track) }}
-              <span class="{{! getFontAwesomeIcon(getTrackSource(track)) }}"></span>
-            </span>
-          </small>
-        </li>
-      </ul>
-      <div ng-show="loading">
-        <p><span class="fas fa-hourglass"></span> Loading...</p>
-      </div>
-      <div ng-show="searching">
-        <p><span style="text-transform: uppercase;">Searching:
-              <span class="fas fa-magnifying-glass"></span>
-           </span>
-           <span ng-repeat="source in searchingSources" style="margin-right: 10px;">
-              <span style="text-transform: uppercase;">
-                {{! source }}
-                <span class="{{! getFontAwesomeIcon(source) }}  fa-beat"></span>
-              </span>
-           </span>
-        </p>
-      </div>
-      <div class="mt-1 mx-auto" style="width: 64px;">
-        <button type="button" class="btn" ng-model="button" ng-click="lookupOnePageOfTracks()" ng-show="tracksToLookup.length">
-          More
-        </button>
-      </div>
-
-      <!-- Diagnostics: hand this log to support when something misbehaves -->
-      <hr>
-      <div style="text-align:center;">
-        <button type="button" class="btn btn-sm btn-secondary" ng-click="downloadLogs()">
-          <span class="fas fa-download"></span> Download diagnostics log
-        </button>
-        <div><small class="tracksource" style="float:none; text-transform:none;">Reproduce the issue first, then download and send this file.</small></div>
-      </div>
+    <!-- ===== Toast ===== -->
+    <div class="toast" role="status" aria-live="polite" ng-class="{'show': message.length, 'error': message[0] === 'error'}">
+      <span class="toast-face"><img ng-src="{{! faceSrc }}" alt=""><span class="toast-badge fas" ng-class="message[0] === 'error' ? 'fa-exclamation' : 'fa-check'" aria-hidden="true"></span></span>
+      <span class="toast-text">{{! message[1] }}</span>
+      <button type="button" class="icon-btn" ng-click="message = []" aria-label="Dismiss">
+        <span class="fas fa-xmark" aria-hidden="true"></span>
+      </button>
     </div>
   </body>
 </html>

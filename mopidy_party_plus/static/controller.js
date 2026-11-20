@@ -1,7 +1,7 @@
 'use strict';
 
 // VERSION MARKER: NETJammer — diagnostics logging
-var NJ_FRONTEND_VERSION = '1.10.4-NETJAMMER (auto-reload stale tabs)';
+var NJ_FRONTEND_VERSION = '1.14.0-NETJAMMER (redesign)';
 console.log("[NETJammer] Frontend version: " + NJ_FRONTEND_VERSION);
 
 // ===== Client-side diagnostics logger =====
@@ -120,35 +120,140 @@ angular.module('partyApp', [])
     $scope.radioSeeds = {};       // uri -> true for songs currently seeding radio (highlighted in History)
     $scope.radioPins = [];        // station seeds: [{kind: track|artist|genre, value, label}]
     $scope.radioLiked = {};       // uri -> true for thumbed-up radio picks
+    $scope.radioBannedArtists = []; // artists thumbed down this session (kept off radio)
     $scope.stationInput = { kind: 'artist', text: '' }; // the "steer radio" form
     $scope.showStation = false;   // station panel expanded
     $scope.radioActionSeq = 0;    // bumped on every local radio/block toggle so stale in-flight polls can't revert it
 
-    // Light/dark theme, toggled in the UI and remembered per device. Defaults to
-    // dark. The <head> also applies this before first paint to avoid a flash.
-    function readTheme() {
-      try {
-        return (localStorage.getItem('netjammerTheme') === 'light') ? 'light' : 'dark';
-      } catch (e) {
-        return 'dark';
-      }
-    }
-    function applyTheme(theme) {
-      var el = document.documentElement;
-      if (theme === 'dark') {
-        el.classList.add('theme-dark');
-      } else {
-        el.classList.remove('theme-dark');
-      }
-    }
-    $scope.theme = readTheme();
-    applyTheme($scope.theme);
-    $scope.toggleTheme = function () {
-      $scope.theme = ($scope.theme === 'dark') ? 'light' : 'dark';
-      try { localStorage.setItem('netjammerTheme', $scope.theme); } catch (e) { /* ignore */ }
-      applyTheme($scope.theme);
+    // Four themes (Listening Room, Daylight, Neon Club, Arcade), each remembered
+    // per browser. The <head> applies the saved one before first paint; art.js
+    // owns the theme list, the per-theme artwork and the album-art tint.
+    var NJArt = window.NJArt;
+    $scope.themes = NJArt.themes;
+    $scope.theme = NJArt.read();
+    $scope.setTheme = function (id) {
+      $scope.theme = NJArt.setTheme(id);
       njlog('INFO', 'action: theme -> ' + $scope.theme);
     };
+    // Draw the theme's art once the DOM is up (the <head> only set the attribute).
+    $timeout(function () { NJArt.setTheme($scope.theme); });
+
+    // The right-hand card shows one of: the queue, radio, history, settings, or
+    // search results. Only one at a time keeps the first screen calm.
+    $scope.panel = 'queue';
+    $scope.lastQuery = '';
+    $scope.showPlaylist = false;  // "paste a playlist link" field revealed
+    $scope.showPanel = function (name) {
+      $scope.panel = name;
+      if (name === 'queue') $scope.refreshQueue();
+      if (name === 'history') $scope.refreshHistory();
+      if (name === 'radio') $scope.refreshRadioState();
+    };
+    $scope.submitSearch = function () {
+      $scope.lastQuery = ($scope.searchField || '').trim();
+      $scope.panel = 'results';
+      $scope.search();
+    };
+    $scope.browseLibrary = function () {
+      $scope.searchField = '';
+      $scope.submitSearch();
+    };
+    // Phone dock: jump straight to the search field or the list card.
+    $scope.focusSearch = function () {
+      var el = document.getElementById('search-input');
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+    };
+    $scope.goToList = function (name) {
+      $scope.showPanel(name);
+      $timeout(function () {
+        var el = document.getElementById('panel');
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    };
+    $scope.openSettings = function () {
+      $scope.showPanel('settings');
+      $timeout(function () {
+        var el = document.getElementById('panel');
+        if (el && el.scrollIntoView && window.innerWidth < 900) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    };
+
+    // Face mark: art/face.png when the host has supplied one, else the drawn SVG.
+    $scope.faceSrc = NJArt.faceSrc();
+    NJArt.onFace(function (src) { $scope.$evalAsync(function () { $scope.faceSrc = src; }); });
+
+    // Queue rows that just arrived (added by anyone) get a short highlight.
+    var knownTlids = null, freshTlids = {};
+    $scope.$watch('queue', function (q) {
+      if (!$scope.ready && !(q || []).length) return; // the empty list before the first load
+      var now = {}, added = false;
+      (q || []).forEach(function (item) {
+        now[item.tlid] = true;
+        if (knownTlids && !knownTlids[item.tlid]) { freshTlids[item.tlid] = true; added = true; }
+      });
+      knownTlids = now;
+      if (added) {
+        $timeout(function () { freshTlids = {}; }, 2600);
+      }
+    });
+    $scope.isFresh = function (item) { return !!freshTlids[item.tlid]; };
+
+    // Gentle motion and the album-art tint follow the shared playback state.
+    $scope.$watch('currentState.state', function (s) { NJArt.setPlaying(s === 'playing'); });
+    $scope.$watch('albumArt', function (url) { NJArt.tint(url); });
+
+    // Volume nudges (keyboard- and touch-friendly alongside the slider).
+    $scope.volumeStep = function (delta) {
+      var v = Math.max(0, Math.min(100, Math.round((Number($scope.currentState.volume) || 0) + delta)));
+      $scope.currentState.volume = v;
+      $scope.setVolume();
+    };
+
+    // Clearing the whole queue asks once: the first tap arms it for a few seconds.
+    $scope.confirmClear = false;
+    var clearTimer = null;
+    $scope.askClearQueue = function () {
+      if ($scope.confirmClear) {
+        $scope.confirmClear = false;
+        if (clearTimer) $timeout.cancel(clearTimer);
+        $scope.clearQueue();
+        return;
+      }
+      $scope.confirmClear = true;
+      clearTimer = $timeout(function () { $scope.confirmClear = false; }, 4000);
+    };
+
+    // Keyboard: "/" jumps to search, Space plays/pauses (outside text fields).
+    document.addEventListener('keydown', function (e) {
+      var t = e.target, tag = (t && t.tagName) || '';
+      var typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable);
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === '/') {
+        var s = document.getElementById('search-input');
+        if (s) { e.preventDefault(); s.focus(); }
+      } else if ((e.key === ' ' || e.code === 'Space') && tag !== 'BUTTON' && tag !== 'A') {
+        if (!$scope.ready || !$scope.currentState.length) return;
+        e.preventDefault();
+        $scope.$apply(function () { $scope.togglePause(); });
+      }
+    });
+
+    $scope.trackArtists = function (track) {
+      return ((track && track.artists) || []).map(function (a) { return a.name; }).join(' & ');
+    };
+    $scope.isPlaying = function () { return $scope.currentState.state === 'playing'; };
+    $scope.progressPct = function () {
+      var len = $scope.currentState.track && $scope.currentState.track.length;
+      if (!len) return 0;
+      return Math.max(0, Math.min(100, ($scope.currentState.position || 0) / len * 100));
+    };
+    $scope.blockedHistory = function () {
+      return $scope.history.filter(function (h) { return $scope.isBlocked(h.uri); })
+        .filter(function (h, i, arr) { return arr.findIndex(function (x) { return x.uri === h.uri; }) === i; });
+    };
+    $scope.blockedCount = function () { return Object.keys($scope.radioBlock).length; };
 
     // Auto-dismiss status messages (shown as a toast) a few seconds after they appear.
     var messageTimer = null;
@@ -844,6 +949,7 @@ angular.module('partyApp', [])
         if (typeof d.available === 'boolean') $scope.radioAvailable = d.available;
         $scope.radioAdded = urisToSet(d.added);
         $scope.radioSeeds = urisToSet(d.seeds);
+        $scope.radioBannedArtists = d.banned_artists || [];
       }, function () { /* ignore transient poll failures */ });
     };
 

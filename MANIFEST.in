@@ -27,3 +27,4 @@ recursive-include mopidy_party_plus *.png
 recursive-include mopidy_party_plus *.ico
 recursive-include mopidy_party_plus *.woff
 recursive-include mopidy_party_plus *.woff2
+recursive-include mopidy_party_plus *.svg

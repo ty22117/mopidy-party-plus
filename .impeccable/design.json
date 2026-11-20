@@ -1,0 +1,1353 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-20T16:50:01+00:00",
+  "title": "Design System: NETJammer",
+  "extensions": {
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Plum Charcoal",
+        "canonical": "#211a2a",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.015 304.1)",
+          "oklch(26.4% 0.019 304.1)",
+          "oklch(37.9% 0.024 304.1)",
+          "oklch(49.3% 0.028 304.1)",
+          "oklch(60.7% 0.031 304.1)",
+          "oklch(72.1% 0.027 304.1)",
+          "oklch(83.6% 0.023 304.1)",
+          "oklch(95.0% 0.019 304.1)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Plum Card",
+        "canonical": "#2d2537",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.016 304.6)",
+          "oklch(26.4% 0.021 304.6)",
+          "oklch(37.9% 0.025 304.6)",
+          "oklch(49.3% 0.030 304.6)",
+          "oklch(60.7% 0.034 304.6)",
+          "oklch(72.1% 0.029 304.6)",
+          "oklch(83.6% 0.025 304.6)",
+          "oklch(95.0% 0.020 304.6)"
+        ]
+      },
+      "card-2": {
+        "role": "neutral",
+        "displayName": "Raised Plum",
+        "canonical": "#392f45",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.019 305.0)",
+          "oklch(26.4% 0.025 305.0)",
+          "oklch(37.9% 0.030 305.0)",
+          "oklch(49.3% 0.035 305.0)",
+          "oklch(60.7% 0.040 305.0)",
+          "oklch(72.1% 0.035 305.0)",
+          "oklch(83.6% 0.029 305.0)",
+          "oklch(95.0% 0.024 305.0)"
+        ]
+      },
+      "card-3": {
+        "role": "neutral",
+        "displayName": "Lifted Plum",
+        "canonical": "#483c56",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.022 305.4)",
+          "oklch(26.4% 0.028 305.4)",
+          "oklch(37.9% 0.034 305.4)",
+          "oklch(49.3% 0.040 305.4)",
+          "oklch(60.7% 0.046 305.4)",
+          "oklch(72.1% 0.039 305.4)",
+          "oklch(83.6% 0.033 305.4)",
+          "oklch(95.0% 0.027 305.4)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Cream",
+        "canonical": "#fff6ee",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.007 64.3)",
+          "oklch(26.4% 0.009 64.3)",
+          "oklch(37.9% 0.011 64.3)",
+          "oklch(49.3% 0.013 64.3)",
+          "oklch(60.7% 0.014 64.3)",
+          "oklch(72.1% 0.012 64.3)",
+          "oklch(83.6% 0.010 64.3)",
+          "oklch(95.0% 0.009 64.3)"
+        ]
+      },
+      "text-2": {
+        "role": "neutral",
+        "displayName": "Lilac Grey",
+        "canonical": "#d0c3d6",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.014 315.3)",
+          "oklch(26.4% 0.018 315.3)",
+          "oklch(37.9% 0.022 315.3)",
+          "oklch(49.3% 0.026 315.3)",
+          "oklch(60.7% 0.029 315.3)",
+          "oklch(72.1% 0.025 315.3)",
+          "oklch(83.6% 0.022 315.3)",
+          "oklch(95.0% 0.018 315.3)"
+        ]
+      },
+      "text-3": {
+        "role": "neutral",
+        "displayName": "Dusk Grey",
+        "canonical": "#a99bb2",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.017 312.3)",
+          "oklch(26.4% 0.022 312.3)",
+          "oklch(37.9% 0.027 312.3)",
+          "oklch(49.3% 0.032 312.3)",
+          "oklch(60.7% 0.036 312.3)",
+          "oklch(72.1% 0.031 312.3)",
+          "oklch(83.6% 0.026 312.3)",
+          "oklch(95.0% 0.022 312.3)"
+        ]
+      },
+      "action": {
+        "role": "primary",
+        "displayName": "Ember Coral",
+        "canonical": "#ff7a59",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.081 35.1)",
+          "oklch(26.4% 0.103 35.1)",
+          "oklch(37.9% 0.126 35.1)",
+          "oklch(49.3% 0.148 35.1)",
+          "oklch(60.7% 0.168 35.1)",
+          "oklch(72.1% 0.146 35.1)",
+          "oklch(83.6% 0.123 35.1)",
+          "oklch(95.0% 0.100 35.1)"
+        ]
+      },
+      "action-ink": {
+        "role": "primary",
+        "displayName": "Coal Ink",
+        "canonical": "#2a110b",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.021 34.6)",
+          "oklch(26.4% 0.026 34.6)",
+          "oklch(37.9% 0.032 34.6)",
+          "oklch(49.3% 0.038 34.6)",
+          "oklch(60.7% 0.043 34.6)",
+          "oklch(72.1% 0.037 34.6)",
+          "oklch(83.6% 0.031 34.6)",
+          "oklch(95.0% 0.026 34.6)"
+        ]
+      },
+      "action-text": {
+        "role": "primary",
+        "displayName": "Ember Text",
+        "canonical": "#ff9c80",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.060 36.6)",
+          "oklch(26.4% 0.076 36.6)",
+          "oklch(37.9% 0.093 36.6)",
+          "oklch(49.3% 0.110 36.6)",
+          "oklch(60.7% 0.124 36.6)",
+          "oklch(72.1% 0.108 36.6)",
+          "oklch(83.6% 0.091 36.6)",
+          "oklch(95.0% 0.074 36.6)"
+        ]
+      },
+      "user": {
+        "role": "secondary",
+        "displayName": "Requested Amber",
+        "canonical": "#ffc574",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.056 74.3)",
+          "oklch(26.4% 0.072 74.3)",
+          "oklch(37.9% 0.088 74.3)",
+          "oklch(49.3% 0.104 74.3)",
+          "oklch(60.7% 0.118 74.3)",
+          "oklch(72.1% 0.102 74.3)",
+          "oklch(83.6% 0.086 74.3)",
+          "oklch(95.0% 0.070 74.3)"
+        ]
+      },
+      "radio": {
+        "role": "secondary",
+        "displayName": "Radio Sky",
+        "canonical": "#8fd0ff",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.044 240.7)",
+          "oklch(26.4% 0.057 240.7)",
+          "oklch(37.9% 0.069 240.7)",
+          "oklch(49.3% 0.082 240.7)",
+          "oklch(60.7% 0.093 240.7)",
+          "oklch(72.1% 0.080 240.7)",
+          "oklch(83.6% 0.068 240.7)",
+          "oklch(95.0% 0.055 240.7)"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "Mint OK",
+        "canonical": "#86e3a8",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.058 154.9)",
+          "oklch(26.4% 0.074 154.9)",
+          "oklch(37.9% 0.091 154.9)",
+          "oklch(49.3% 0.107 154.9)",
+          "oklch(60.7% 0.121 154.9)",
+          "oklch(72.1% 0.105 154.9)",
+          "oklch(83.6% 0.089 154.9)",
+          "oklch(95.0% 0.072 154.9)"
+        ]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Soft Red",
+        "canonical": "#ff7b7b",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.077 21.8)",
+          "oklch(26.4% 0.098 21.8)",
+          "oklch(37.9% 0.120 21.8)",
+          "oklch(49.3% 0.141 21.8)",
+          "oklch(60.7% 0.160 21.8)",
+          "oklch(72.1% 0.139 21.8)",
+          "oklch(83.6% 0.117 21.8)",
+          "oklch(95.0% 0.095 21.8)"
+        ]
+      },
+      "scene-bg": {
+        "role": "neutral",
+        "displayName": "Scene Ground",
+        "canonical": "#1b1622",
+        "theme": "listening-room",
+        "tonalRamp": [
+          "oklch(15.0% 0.012 303.4)",
+          "oklch(26.4% 0.015 303.4)",
+          "oklch(37.9% 0.018 303.4)",
+          "oklch(49.3% 0.021 303.4)",
+          "oklch(60.7% 0.024 303.4)",
+          "oklch(72.1% 0.021 303.4)",
+          "oklch(83.6% 0.018 303.4)",
+          "oklch(95.0% 0.014 303.4)"
+        ]
+      },
+      "daylight-ground": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#fbf1e4",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.010 74.7)",
+          "oklch(26.4% 0.012 74.7)",
+          "oklch(37.9% 0.015 74.7)",
+          "oklch(49.3% 0.018 74.7)",
+          "oklch(60.7% 0.020 74.7)",
+          "oklch(72.1% 0.017 74.7)",
+          "oklch(83.6% 0.015 74.7)",
+          "oklch(95.0% 0.012 74.7)"
+        ]
+      },
+      "daylight-card": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#ffffff",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.000 89.9)",
+          "oklch(26.4% 0.000 89.9)",
+          "oklch(37.9% 0.000 89.9)",
+          "oklch(49.3% 0.000 89.9)",
+          "oklch(60.7% 0.000 89.9)",
+          "oklch(72.1% 0.000 89.9)",
+          "oklch(83.6% 0.000 89.9)",
+          "oklch(95.0% 0.000 89.9)"
+        ]
+      },
+      "daylight-card-2": {
+        "role": "neutral",
+        "displayName": "Sand",
+        "canonical": "#f6ece0",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.009 72.6)",
+          "oklch(26.4% 0.012 72.6)",
+          "oklch(37.9% 0.014 72.6)",
+          "oklch(49.3% 0.017 72.6)",
+          "oklch(60.7% 0.019 72.6)",
+          "oklch(72.1% 0.017 72.6)",
+          "oklch(83.6% 0.014 72.6)",
+          "oklch(95.0% 0.011 72.6)"
+        ]
+      },
+      "daylight-card-3": {
+        "role": "neutral",
+        "displayName": "Deep Sand",
+        "canonical": "#ecdfcf",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.012 73.2)",
+          "oklch(26.4% 0.016 73.2)",
+          "oklch(37.9% 0.019 73.2)",
+          "oklch(49.3% 0.023 73.2)",
+          "oklch(60.7% 0.026 73.2)",
+          "oklch(72.1% 0.022 73.2)",
+          "oklch(83.6% 0.019 73.2)",
+          "oklch(95.0% 0.015 73.2)"
+        ]
+      },
+      "daylight-text": {
+        "role": "neutral",
+        "displayName": "Espresso",
+        "canonical": "#2b241f",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.007 57.6)",
+          "oklch(26.4% 0.008 57.6)",
+          "oklch(37.9% 0.010 57.6)",
+          "oklch(49.3% 0.012 57.6)",
+          "oklch(60.7% 0.014 57.6)",
+          "oklch(72.1% 0.012 57.6)",
+          "oklch(83.6% 0.010 57.6)",
+          "oklch(95.0% 0.008 57.6)"
+        ]
+      },
+      "daylight-text-2": {
+        "role": "neutral",
+        "displayName": "Cocoa Grey",
+        "canonical": "#62564e",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.010 55.8)",
+          "oklch(26.4% 0.012 55.8)",
+          "oklch(37.9% 0.015 55.8)",
+          "oklch(49.3% 0.018 55.8)",
+          "oklch(60.7% 0.020 55.8)",
+          "oklch(72.1% 0.017 55.8)",
+          "oklch(83.6% 0.015 55.8)",
+          "oklch(95.0% 0.012 55.8)"
+        ]
+      },
+      "daylight-text-3": {
+        "role": "neutral",
+        "displayName": "Taupe",
+        "canonical": "#7a6c62",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.011 57.8)",
+          "oklch(26.4% 0.014 57.8)",
+          "oklch(37.9% 0.017 57.8)",
+          "oklch(49.3% 0.020 57.8)",
+          "oklch(60.7% 0.023 57.8)",
+          "oklch(72.1% 0.020 57.8)",
+          "oklch(83.6% 0.017 57.8)",
+          "oklch(95.0% 0.014 57.8)"
+        ]
+      },
+      "daylight-action": {
+        "role": "primary",
+        "displayName": "Daylight Tangerine",
+        "canonical": "#ff6a3d",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.091 37.1)",
+          "oklch(26.4% 0.117 37.1)",
+          "oklch(37.9% 0.142 37.1)",
+          "oklch(49.3% 0.168 37.1)",
+          "oklch(60.7% 0.190 37.1)",
+          "oklch(72.1% 0.164 37.1)",
+          "oklch(83.6% 0.139 37.1)",
+          "oklch(95.0% 0.113 37.1)"
+        ]
+      },
+      "daylight-action-ink": {
+        "role": "primary",
+        "displayName": "Daylight Ink",
+        "canonical": "#2a1208",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.021 42.9)",
+          "oklch(26.4% 0.027 42.9)",
+          "oklch(37.9% 0.032 42.9)",
+          "oklch(49.3% 0.038 42.9)",
+          "oklch(60.7% 0.043 42.9)",
+          "oklch(72.1% 0.038 42.9)",
+          "oklch(83.6% 0.032 42.9)",
+          "oklch(95.0% 0.026 42.9)"
+        ]
+      },
+      "daylight-action-text": {
+        "role": "primary",
+        "displayName": "Burnt Orange",
+        "canonical": "#b6401b",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.076 36.9)",
+          "oklch(26.4% 0.098 36.9)",
+          "oklch(37.9% 0.119 36.9)",
+          "oklch(49.3% 0.140 36.9)",
+          "oklch(60.7% 0.159 36.9)",
+          "oklch(72.1% 0.138 36.9)",
+          "oklch(83.6% 0.116 36.9)",
+          "oklch(95.0% 0.095 36.9)"
+        ]
+      },
+      "daylight-user": {
+        "role": "secondary",
+        "displayName": "Daylight Ochre",
+        "canonical": "#9a6418",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.052 69.5)",
+          "oklch(26.4% 0.067 69.5)",
+          "oklch(37.9% 0.082 69.5)",
+          "oklch(49.3% 0.096 69.5)",
+          "oklch(60.7% 0.109 69.5)",
+          "oklch(72.1% 0.095 69.5)",
+          "oklch(83.6% 0.080 69.5)",
+          "oklch(95.0% 0.065 69.5)"
+        ]
+      },
+      "daylight-radio": {
+        "role": "secondary",
+        "displayName": "Harbor Blue",
+        "canonical": "#276d9f",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.050 243.8)",
+          "oklch(26.4% 0.064 243.8)",
+          "oklch(37.9% 0.078 243.8)",
+          "oklch(49.3% 0.092 243.8)",
+          "oklch(60.7% 0.104 243.8)",
+          "oklch(72.1% 0.090 243.8)",
+          "oklch(83.6% 0.076 243.8)",
+          "oklch(95.0% 0.062 243.8)"
+        ]
+      },
+      "daylight-ok": {
+        "role": "tertiary",
+        "displayName": "Fern",
+        "canonical": "#2a7d4c",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.053 153.8)",
+          "oklch(26.4% 0.068 153.8)",
+          "oklch(37.9% 0.082 153.8)",
+          "oklch(49.3% 0.097 153.8)",
+          "oklch(60.7% 0.110 153.8)",
+          "oklch(72.1% 0.095 153.8)",
+          "oklch(83.6% 0.081 153.8)",
+          "oklch(95.0% 0.066 153.8)"
+        ]
+      },
+      "daylight-danger": {
+        "role": "tertiary",
+        "displayName": "Brick",
+        "canonical": "#c0392b",
+        "theme": "daylight",
+        "tonalRamp": [
+          "oklch(15.0% 0.083 29.7)",
+          "oklch(26.4% 0.106 29.7)",
+          "oklch(37.9% 0.129 29.7)",
+          "oklch(49.3% 0.152 29.7)",
+          "oklch(60.7% 0.173 29.7)",
+          "oklch(72.1% 0.149 29.7)",
+          "oklch(83.6% 0.126 29.7)",
+          "oklch(95.0% 0.103 29.7)"
+        ]
+      },
+      "neon-ground": {
+        "role": "neutral",
+        "displayName": "Violet Black",
+        "canonical": "#0b0614",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.015 300.0)",
+          "oklch(26.4% 0.019 300.0)",
+          "oklch(37.9% 0.024 300.0)",
+          "oklch(49.3% 0.028 300.0)",
+          "oklch(60.7% 0.032 300.0)",
+          "oklch(72.1% 0.027 300.0)",
+          "oklch(83.6% 0.023 300.0)",
+          "oklch(95.0% 0.019 300.0)"
+        ]
+      },
+      "neon-card": {
+        "role": "neutral",
+        "displayName": "Club Card",
+        "canonical": "#160e25",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.022 297.9)",
+          "oklch(26.4% 0.028 297.9)",
+          "oklch(37.9% 0.034 297.9)",
+          "oklch(49.3% 0.040 297.9)",
+          "oklch(60.7% 0.046 297.9)",
+          "oklch(72.1% 0.040 297.9)",
+          "oklch(83.6% 0.033 297.9)",
+          "oklch(95.0% 0.027 297.9)"
+        ]
+      },
+      "neon-card-2": {
+        "role": "neutral",
+        "displayName": "Club Raised",
+        "canonical": "#221636",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.029 298.9)",
+          "oklch(26.4% 0.037 298.9)",
+          "oklch(37.9% 0.045 298.9)",
+          "oklch(49.3% 0.053 298.9)",
+          "oklch(60.7% 0.060 298.9)",
+          "oklch(72.1% 0.052 298.9)",
+          "oklch(83.6% 0.044 298.9)",
+          "oklch(95.0% 0.036 298.9)"
+        ]
+      },
+      "neon-card-3": {
+        "role": "neutral",
+        "displayName": "Club Lifted",
+        "canonical": "#301f4a",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.037 299.7)",
+          "oklch(26.4% 0.047 299.7)",
+          "oklch(37.9% 0.058 299.7)",
+          "oklch(49.3% 0.068 299.7)",
+          "oklch(60.7% 0.077 299.7)",
+          "oklch(72.1% 0.067 299.7)",
+          "oklch(83.6% 0.056 299.7)",
+          "oklch(95.0% 0.046 299.7)"
+        ]
+      },
+      "neon-text": {
+        "role": "neutral",
+        "displayName": "Neon White",
+        "canonical": "#fff2fb",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.009 336.5)",
+          "oklch(26.4% 0.011 336.5)",
+          "oklch(37.9% 0.014 336.5)",
+          "oklch(49.3% 0.016 336.5)",
+          "oklch(60.7% 0.018 336.5)",
+          "oklch(72.1% 0.016 336.5)",
+          "oklch(83.6% 0.013 336.5)",
+          "oklch(95.0% 0.011 336.5)"
+        ]
+      },
+      "neon-text-2": {
+        "role": "neutral",
+        "displayName": "Neon Lilac",
+        "canonical": "#d6c2ea",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.028 307.7)",
+          "oklch(26.4% 0.036 307.7)",
+          "oklch(37.9% 0.044 307.7)",
+          "oklch(49.3% 0.051 307.7)",
+          "oklch(60.7% 0.058 307.7)",
+          "oklch(72.1% 0.051 307.7)",
+          "oklch(83.6% 0.043 307.7)",
+          "oklch(95.0% 0.035 307.7)"
+        ]
+      },
+      "neon-text-3": {
+        "role": "neutral",
+        "displayName": "Neon Dusk",
+        "canonical": "#ad97c8",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.035 305.0)",
+          "oklch(26.4% 0.045 305.0)",
+          "oklch(37.9% 0.055 305.0)",
+          "oklch(49.3% 0.065 305.0)",
+          "oklch(60.7% 0.073 305.0)",
+          "oklch(72.1% 0.064 305.0)",
+          "oklch(83.6% 0.054 305.0)",
+          "oklch(95.0% 0.044 305.0)"
+        ]
+      },
+      "neon-action": {
+        "role": "primary",
+        "displayName": "Hot Magenta",
+        "canonical": "#ff3d9a",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.113 356.8)",
+          "oklch(26.4% 0.145 356.8)",
+          "oklch(37.9% 0.177 356.8)",
+          "oklch(49.3% 0.208 356.8)",
+          "oklch(60.7% 0.236 356.8)",
+          "oklch(72.1% 0.204 356.8)",
+          "oklch(83.6% 0.173 356.8)",
+          "oklch(95.0% 0.141 356.8)"
+        ]
+      },
+      "neon-action-ink": {
+        "role": "primary",
+        "displayName": "Magenta Ink",
+        "canonical": "#1b0010",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.030 346.0)",
+          "oklch(26.4% 0.038 346.0)",
+          "oklch(37.9% 0.046 346.0)",
+          "oklch(49.3% 0.055 346.0)",
+          "oklch(60.7% 0.062 346.0)",
+          "oklch(72.1% 0.054 346.0)",
+          "oklch(83.6% 0.045 346.0)",
+          "oklch(95.0% 0.037 346.0)"
+        ]
+      },
+      "neon-action-text": {
+        "role": "primary",
+        "displayName": "Magenta Text",
+        "canonical": "#ff7ec0",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.082 350.0)",
+          "oklch(26.4% 0.105 350.0)",
+          "oklch(37.9% 0.128 350.0)",
+          "oklch(49.3% 0.151 350.0)",
+          "oklch(60.7% 0.171 350.0)",
+          "oklch(72.1% 0.148 350.0)",
+          "oklch(83.6% 0.125 350.0)",
+          "oklch(95.0% 0.102 350.0)"
+        ]
+      },
+      "neon-user": {
+        "role": "secondary",
+        "displayName": "Neon Gold",
+        "canonical": "#ffd84d",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.075 93.0)",
+          "oklch(26.4% 0.095 93.0)",
+          "oklch(37.9% 0.116 93.0)",
+          "oklch(49.3% 0.137 93.0)",
+          "oklch(60.7% 0.156 93.0)",
+          "oklch(72.1% 0.135 93.0)",
+          "oklch(83.6% 0.114 93.0)",
+          "oklch(95.0% 0.093 93.0)"
+        ]
+      },
+      "neon-radio": {
+        "role": "secondary",
+        "displayName": "Neon Cyan",
+        "canonical": "#2ee6ff",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.066 209.4)",
+          "oklch(26.4% 0.085 209.4)",
+          "oklch(37.9% 0.104 209.4)",
+          "oklch(49.3% 0.122 209.4)",
+          "oklch(60.7% 0.138 209.4)",
+          "oklch(72.1% 0.120 209.4)",
+          "oklch(83.6% 0.101 209.4)",
+          "oklch(95.0% 0.083 209.4)"
+        ]
+      },
+      "neon-ok": {
+        "role": "tertiary",
+        "displayName": "Neon Mint",
+        "canonical": "#5cffb0",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.083 158.4)",
+          "oklch(26.4% 0.107 158.4)",
+          "oklch(37.9% 0.130 158.4)",
+          "oklch(49.3% 0.154 158.4)",
+          "oklch(60.7% 0.174 158.4)",
+          "oklch(72.1% 0.151 158.4)",
+          "oklch(83.6% 0.127 158.4)",
+          "oklch(95.0% 0.104 158.4)"
+        ]
+      },
+      "neon-danger": {
+        "role": "tertiary",
+        "displayName": "Neon Rose",
+        "canonical": "#ff6b8b",
+        "theme": "neon-club",
+        "tonalRamp": [
+          "oklch(15.0% 0.086 9.5)",
+          "oklch(26.4% 0.110 9.5)",
+          "oklch(37.9% 0.135 9.5)",
+          "oklch(49.3% 0.159 9.5)",
+          "oklch(60.7% 0.180 9.5)",
+          "oklch(72.1% 0.156 9.5)",
+          "oklch(83.6% 0.132 9.5)",
+          "oklch(95.0% 0.107 9.5)"
+        ]
+      },
+      "arcade-ground": {
+        "role": "neutral",
+        "displayName": "Night Blue",
+        "canonical": "#120d33",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.034 283.4)",
+          "oklch(26.4% 0.044 283.4)",
+          "oklch(37.9% 0.053 283.4)",
+          "oklch(49.3% 0.063 283.4)",
+          "oklch(60.7% 0.071 283.4)",
+          "oklch(72.1% 0.062 283.4)",
+          "oklch(83.6% 0.052 283.4)",
+          "oklch(95.0% 0.042 283.4)"
+        ]
+      },
+      "arcade-card": {
+        "role": "neutral",
+        "displayName": "Arcade Card",
+        "canonical": "#1e1752",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.049 281.7)",
+          "oklch(26.4% 0.063 281.7)",
+          "oklch(37.9% 0.076 281.7)",
+          "oklch(49.3% 0.090 281.7)",
+          "oklch(60.7% 0.102 281.7)",
+          "oklch(72.1% 0.088 281.7)",
+          "oklch(83.6% 0.075 281.7)",
+          "oklch(95.0% 0.061 281.7)"
+        ]
+      },
+      "arcade-card-2": {
+        "role": "neutral",
+        "displayName": "Arcade Raised",
+        "canonical": "#2a2170",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.062 281.0)",
+          "oklch(26.4% 0.079 281.0)",
+          "oklch(37.9% 0.096 281.0)",
+          "oklch(49.3% 0.114 281.0)",
+          "oklch(60.7% 0.129 281.0)",
+          "oklch(72.1% 0.112 281.0)",
+          "oklch(83.6% 0.094 281.0)",
+          "oklch(95.0% 0.077 281.0)"
+        ]
+      },
+      "arcade-card-3": {
+        "role": "neutral",
+        "displayName": "Arcade Lifted",
+        "canonical": "#3a2f8c",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.070 282.1)",
+          "oklch(26.4% 0.090 282.1)",
+          "oklch(37.9% 0.109 282.1)",
+          "oklch(49.3% 0.129 282.1)",
+          "oklch(60.7% 0.146 282.1)",
+          "oklch(72.1% 0.127 282.1)",
+          "oklch(83.6% 0.107 282.1)",
+          "oklch(95.0% 0.087 282.1)"
+        ]
+      },
+      "arcade-outline": {
+        "role": "neutral",
+        "displayName": "Pixel Outline",
+        "canonical": "#0b0826",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.028 282.1)",
+          "oklch(26.4% 0.036 282.1)",
+          "oklch(37.9% 0.044 282.1)",
+          "oklch(49.3% 0.052 282.1)",
+          "oklch(60.7% 0.059 282.1)",
+          "oklch(72.1% 0.051 282.1)",
+          "oklch(83.6% 0.043 282.1)",
+          "oklch(95.0% 0.035 282.1)"
+        ]
+      },
+      "arcade-text": {
+        "role": "neutral",
+        "displayName": "Arcade White",
+        "canonical": "#f4f1ff",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.009 295.9)",
+          "oklch(26.4% 0.011 295.9)",
+          "oklch(37.9% 0.014 295.9)",
+          "oklch(49.3% 0.017 295.9)",
+          "oklch(60.7% 0.019 295.9)",
+          "oklch(72.1% 0.016 295.9)",
+          "oklch(83.6% 0.014 295.9)",
+          "oklch(95.0% 0.011 295.9)"
+        ]
+      },
+      "arcade-text-2": {
+        "role": "neutral",
+        "displayName": "Arcade Lilac",
+        "canonical": "#cbc5f2",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.030 291.1)",
+          "oklch(26.4% 0.038 291.1)",
+          "oklch(37.9% 0.046 291.1)",
+          "oklch(49.3% 0.055 291.1)",
+          "oklch(60.7% 0.062 291.1)",
+          "oklch(72.1% 0.054 291.1)",
+          "oklch(83.6% 0.045 291.1)",
+          "oklch(95.0% 0.037 291.1)"
+        ]
+      },
+      "arcade-text-3": {
+        "role": "neutral",
+        "displayName": "Arcade Dusk",
+        "canonical": "#aaa2e4",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.045 289.4)",
+          "oklch(26.4% 0.057 289.4)",
+          "oklch(37.9% 0.070 289.4)",
+          "oklch(49.3% 0.083 289.4)",
+          "oklch(60.7% 0.094 289.4)",
+          "oklch(72.1% 0.081 289.4)",
+          "oklch(83.6% 0.069 289.4)",
+          "oklch(95.0% 0.056 289.4)"
+        ]
+      },
+      "arcade-action": {
+        "role": "primary",
+        "displayName": "Coin Yellow",
+        "canonical": "#ffcc33",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.078 88.7)",
+          "oklch(26.4% 0.100 88.7)",
+          "oklch(37.9% 0.122 88.7)",
+          "oklch(49.3% 0.144 88.7)",
+          "oklch(60.7% 0.163 88.7)",
+          "oklch(72.1% 0.141 88.7)",
+          "oklch(83.6% 0.119 88.7)",
+          "oklch(95.0% 0.097 88.7)"
+        ]
+      },
+      "arcade-action-ink": {
+        "role": "primary",
+        "displayName": "Coin Ink",
+        "canonical": "#1a1033",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.031 293.0)",
+          "oklch(26.4% 0.040 293.0)",
+          "oklch(37.9% 0.049 293.0)",
+          "oklch(49.3% 0.058 293.0)",
+          "oklch(60.7% 0.066 293.0)",
+          "oklch(72.1% 0.057 293.0)",
+          "oklch(83.6% 0.048 293.0)",
+          "oklch(95.0% 0.039 293.0)"
+        ]
+      },
+      "arcade-action-text": {
+        "role": "primary",
+        "displayName": "Coin Text",
+        "canonical": "#ffd75e",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.069 90.8)",
+          "oklch(26.4% 0.088 90.8)",
+          "oklch(37.9% 0.107 90.8)",
+          "oklch(49.3% 0.126 90.8)",
+          "oklch(60.7% 0.143 90.8)",
+          "oklch(72.1% 0.124 90.8)",
+          "oklch(83.6% 0.105 90.8)",
+          "oklch(95.0% 0.085 90.8)"
+        ]
+      },
+      "arcade-action-shade": {
+        "role": "primary",
+        "displayName": "Coin Shade",
+        "canonical": "#8a5a00",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.051 73.3)",
+          "oklch(26.4% 0.066 73.3)",
+          "oklch(37.9% 0.080 73.3)",
+          "oklch(49.3% 0.094 73.3)",
+          "oklch(60.7% 0.107 73.3)",
+          "oklch(72.1% 0.093 73.3)",
+          "oklch(83.6% 0.078 73.3)",
+          "oklch(95.0% 0.064 73.3)"
+        ]
+      },
+      "arcade-user": {
+        "role": "secondary",
+        "displayName": "Bubblegum",
+        "canonical": "#ff9ad5",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.066 344.7)",
+          "oklch(26.4% 0.085 344.7)",
+          "oklch(37.9% 0.103 344.7)",
+          "oklch(49.3% 0.122 344.7)",
+          "oklch(60.7% 0.138 344.7)",
+          "oklch(72.1% 0.120 344.7)",
+          "oklch(83.6% 0.101 344.7)",
+          "oklch(95.0% 0.082 344.7)"
+        ]
+      },
+      "arcade-radio": {
+        "role": "secondary",
+        "displayName": "Arcade Mint",
+        "canonical": "#4be3ac",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.071 164.8)",
+          "oklch(26.4% 0.091 164.8)",
+          "oklch(37.9% 0.111 164.8)",
+          "oklch(49.3% 0.131 164.8)",
+          "oklch(60.7% 0.149 164.8)",
+          "oklch(72.1% 0.129 164.8)",
+          "oklch(83.6% 0.109 164.8)",
+          "oklch(95.0% 0.089 164.8)"
+        ]
+      },
+      "arcade-danger": {
+        "role": "tertiary",
+        "displayName": "Arcade Red",
+        "canonical": "#ff6b6b",
+        "theme": "arcade",
+        "tonalRamp": [
+          "oklch(15.0% 0.086 22.8)",
+          "oklch(26.4% 0.110 22.8)",
+          "oklch(37.9% 0.134 22.8)",
+          "oklch(49.3% 0.159 22.8)",
+          "oklch(60.7% 0.180 22.8)",
+          "oklch(72.1% 0.156 22.8)",
+          "oklch(83.6% 0.131 22.8)",
+          "oklch(95.0% 0.107 22.8)"
+        ]
+      }
+    },
+    "themeTokens": {
+      "selector": "html[data-theme] (listening-room default on :root)",
+      "dynamic": {
+        "listening-room": {
+          "theme-hue": 212,
+          "ground-glow": "hsl(var(--tint-hue) 75% 58% / .16)",
+          "scene-light": "hsl(var(--tint-hue) 90% 62% / .26)",
+          "scene-blend": "screen",
+          "arrive": "hsl(var(--tint-hue) 80% 65% / .22)",
+          "line": "rgba(255,238,226,.09)",
+          "card-border": "1px solid rgba(255,238,226,.05)",
+          "warn": "#ffc574",
+          "thumb": "#fff6ee",
+          "toast-bg": "#fff6ee",
+          "toast-ink": "#2a2233",
+          "notes": [
+            "#8fd0ff",
+            "#ffd36b",
+            "#86e3a8"
+          ]
+        },
+        "daylight": {
+          "theme-hue": 150,
+          "ground-glow": "hsl(var(--tint-hue) 60% 72% / .32)",
+          "scene-light": "hsl(var(--tint-hue) 70% 70% / .22)",
+          "scene-blend": "soft-light",
+          "arrive": "hsl(var(--tint-hue) 70% 70% / .3)",
+          "line": "rgba(70,45,25,.10)",
+          "card-border": "1px solid rgba(70,45,25,.06)",
+          "warn": "#9a6418",
+          "thumb": "#ffffff",
+          "toast-bg": "#2b241f",
+          "toast-ink": "#fff8f0",
+          "scene-bg": "#f7f1e6",
+          "notes": [
+            "#7aa8d8",
+            "#e7a35a",
+            "#74b48a"
+          ]
+        },
+        "neon-club": {
+          "theme-hue": 320,
+          "ground-glow": "hsl(var(--tint-hue) 95% 58% / .2)",
+          "scene-light": "hsl(var(--tint-hue) 100% 60% / .34)",
+          "scene-blend": "screen",
+          "arrive": "rgba(46,230,255,.16)",
+          "line": "rgba(255,61,154,.2)",
+          "card-border": "1px solid rgba(255,92,170,.28)",
+          "warn": "#ffd84d",
+          "thumb": "#ffffff",
+          "toast-bg": "#ff3d9a",
+          "toast-ink": "#1b0010",
+          "scene-bg": "#0b0614",
+          "font-mark": "Monoton",
+          "notes": [
+            "#2ee6ff",
+            "#ff3d9a",
+            "#b26bff"
+          ]
+        },
+        "arcade": {
+          "theme-hue": 250,
+          "ground-glow": "hsl(var(--tint-hue) 80% 60% / .12)",
+          "scene-light": "transparent",
+          "scene-blend": "normal",
+          "arrive": "rgba(255,204,51,.18)",
+          "line": "#3a2f8c",
+          "card-border": "3px solid #0b0826",
+          "warn": "#ffcc33",
+          "thumb": "#f4f1ff",
+          "toast-bg": "#ffcc33",
+          "toast-ink": "#1a1033",
+          "scene-bg": "#120d33",
+          "font-ui": "Pixelify Sans",
+          "display-weight": 700,
+          "radii": "all 0",
+          "focus": "dashed",
+          "notes": [
+            "#7ef0c4",
+            "#ffd23f",
+            "#ff7ab6"
+          ]
+        }
+      },
+      "tint": "--tint-hue is a registered <number> property (initial 212) set by art.js from the album art's average saturated hue; it falls back to --theme-hue and transitions over 1.6s. Only ground-glow, scene-light and arrive read it."
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Now-playing title only; two-line clamp, balanced."
+      },
+      "numeral": {
+        "displayName": "Numeral",
+        "purpose": "Volume readout."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "NETJammer logo: NET as a tilted action chip, Jammer over a mustache stroke."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Card headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Block headings in the list card; 20px in empty states."
+      },
+      "row-title": {
+        "displayName": "Row title",
+        "purpose": "Song names in lists; single line with ellipsis."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Base text."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Small buttons, chips, pins."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Times, counts, row numbers, sub-lines; tabular figures."
+      },
+      "arcade-body": {
+        "displayName": "Arcade body",
+        "purpose": "Arcade replaces the whole UI family."
+      },
+      "arcade-display": {
+        "displayName": "Arcade display",
+        "purpose": "Arcade now-playing title."
+      },
+      "neon-wordmark": {
+        "displayName": "Neon wordmark",
+        "purpose": "Neon Club wordmark only, with pink and cyan tube glow."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-listening-room",
+        "value": "0 22px 44px -24px rgba(8,4,14,.75)",
+        "purpose": "Card shadow, Listening Room."
+      },
+      {
+        "name": "card-daylight",
+        "value": "0 1px 2px rgba(70,45,25,.06), 0 18px 40px -26px rgba(90,55,25,.35)",
+        "purpose": "Card shadow, Daylight."
+      },
+      {
+        "name": "card-neon-club",
+        "value": "0 0 0 1px rgba(46,230,255,.04), 0 24px 50px -24px rgba(255,61,154,.35)",
+        "purpose": "Card shadow, Neon Club."
+      },
+      {
+        "name": "card-arcade",
+        "value": "0 6px 0 #0b0826",
+        "purpose": "Card shadow, Arcade only: hard pixel drop."
+      },
+      {
+        "name": "action-glow-listening-room",
+        "value": "0 8px 26px -8px rgba(255,122,89,.7)",
+        "purpose": "Glow under action controls."
+      },
+      {
+        "name": "action-glow-daylight",
+        "value": "0 8px 22px -10px rgba(230,90,45,.65)",
+        "purpose": "Glow under action controls."
+      },
+      {
+        "name": "action-glow-neon-club",
+        "value": "0 0 0 1px rgba(255,61,154,.55), 0 10px 30px -6px rgba(255,61,154,.75)",
+        "purpose": "Ring plus glow under action controls."
+      },
+      {
+        "name": "action-glow-arcade",
+        "value": "0 4px 0 #8a5a00",
+        "purpose": "Hard coin shade under action controls; press sinks 3px onto it."
+      },
+      {
+        "name": "cover-lift",
+        "value": "0 0 0 4px var(--card), 0 16px 34px -10px rgba(0,0,0,.65)",
+        "purpose": "Album cover inset on the scene."
+      },
+      {
+        "name": "tab-lift",
+        "value": "0 3px 10px -4px rgba(0,0,0,.4)",
+        "purpose": "Selected tab or segment."
+      },
+      {
+        "name": "drag-lift",
+        "value": "0 14px 30px -12px rgba(0,0,0,.55)",
+        "purpose": "Queue row while dragging."
+      },
+      {
+        "name": "toast",
+        "value": "0 18px 40px -14px rgba(0,0,0,.55)",
+        "purpose": "Toast and phone dock."
+      }
+    ],
+    "motion": [
+      {
+        "name": "spring",
+        "value": "cubic-bezier(.3, 1.3, .6, 1)",
+        "purpose": "Press feedback (.25s, scale .94), switch knob (.35s), toast entrance (.5s)."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "Tint hue (1.6s), note float, row arrival, ripples, cover shadow."
+      },
+      {
+        "name": "press",
+        "value": "transform: scale(.94) over .25s spring",
+        "purpose": "Every button, chip, control, add button, switch and icon button on :active."
+      },
+      {
+        "name": "note-float",
+        "value": "7s ease-out infinite, staggered 1.4s; Arcade steps(10)",
+        "purpose": "Notes drift off the scene only while playing."
+      },
+      {
+        "name": "guy-bob",
+        "value": "translateY(-6px) 2.6s ease-in-out infinite",
+        "purpose": "Optional guy.png cut-out while playing."
+      },
+      {
+        "name": "arrive",
+        "value": "2.4s ease-out, tinted background from translateY(-6px)",
+        "purpose": "A newly queued row."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "all durations .001ms, notes hidden, tint transition off",
+        "purpose": "prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "two-column",
+        "value": "max-width: 1240px"
+      },
+      {
+        "name": "phone",
+        "value": "max-width: 899px"
+      },
+      {
+        "name": "small-phone",
+        "value": "max-width: 420px"
+      },
+      {
+        "name": "short-laptop",
+        "value": "min-width: 900px and max-height: 800px"
+      },
+      {
+        "name": "very-short",
+        "value": "min-width: 900px and max-height: 600px"
+      },
+      {
+        "name": "panel-narrow",
+        "value": "@container panel (max-width: 620px)"
+      },
+      {
+        "name": "panel-compact",
+        "value": "@container panel (max-width: 520px)"
+      },
+      {
+        "name": "touch",
+        "value": "hover: none"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Action Button",
+      "kind": "button",
+      "refersTo": "button-action",
+      "description": "The pressable bright thing: Search, empty-state next steps.",
+      "html": "<button class=\"ds-btn ds-btn-action\">Search</button>",
+      "css": ".ds-btn { display:inline-flex; align-items:center; justify-content:center; gap:9px; height:46px; padding:0 22px; border:0; border-radius:999px; font:800 16px/1 Nunito, ui-rounded, system-ui, sans-serif; cursor:pointer; transition: transform .25s cubic-bezier(.3,1.3,.6,1), background .2s, box-shadow .2s; } .ds-btn-action { background:var(--action, #ff7a59); color:var(--action-ink, #2a110b); box-shadow:0 8px 26px -8px rgba(255,122,89,.7); } .ds-btn-action:hover { filter:brightness(1.06); } .ds-btn:active { transform:scale(.94); } .ds-btn:focus-visible { outline:3px solid var(--action-text, #ff9c80); outline-offset:3px; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Secondary actions such as Clear.",
+      "html": "<button class=\"ds-btn-quiet\">Clear</button>",
+      "css": ".ds-btn-quiet { display:inline-flex; align-items:center; height:36px; padding:0 14px; border:0; border-radius:999px; background:var(--card-2, #392f45); color:var(--text, #fff6ee); font:800 14.5px/1 Nunito, ui-rounded, system-ui, sans-serif; cursor:pointer; transition: transform .25s cubic-bezier(.3,1.3,.6,1), background .2s, box-shadow .2s; } .ds-btn-quiet:hover { background:var(--card-3, #483c56); } .ds-btn-quiet:active { transform:scale(.94); } .ds-btn-quiet:focus-visible { outline:3px solid var(--action-text, #ff9c80); outline-offset:3px; }"
+    },
+    {
+      "name": "Transport",
+      "kind": "custom",
+      "refersTo": "control-play",
+      "description": "Previous, the big play button, skip.",
+      "html": "<div class=\"ds-transport\"><button class=\"ds-ctl ds-ctl-sm\" aria-label=\"Previous\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M6 5h2v14H6zM20 5v14L9 12z\"/></svg></button><button class=\"ds-ctl ds-ctl-play\" aria-label=\"Pause\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M6 4h4v16H6zM14 4h4v16h-4z\"/></svg></button><button class=\"ds-ctl ds-ctl-sm\" aria-label=\"Skip\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M16 5h2v14h-2zM4 5v14l11-7z\"/></svg></button></div>",
+      "css": ".ds-transport { display:flex; align-items:center; justify-content:center; gap:22px; } .ds-ctl { display:inline-grid; place-items:center; border:0; border-radius:999px; cursor:pointer; transition: transform .25s cubic-bezier(.3,1.3,.6,1), background .2s, box-shadow .2s; } .ds-ctl-sm { width:58px; height:58px; background:var(--card-2, #392f45); color:var(--text, #fff6ee); } .ds-ctl-sm:hover { background:var(--card-3, #483c56); } .ds-ctl-play { width:86px; height:86px; background:var(--action, #ff7a59); color:var(--action-ink, #2a110b); box-shadow:0 8px 26px -8px rgba(255,122,89,.7); } .ds-ctl:active { transform:scale(.94); } .ds-ctl:focus-visible { outline:3px solid var(--action-text, #ff9c80); outline-offset:3px; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "search-field",
+      "description": "The Add a song pill with its Search action inside.",
+      "html": "<label class=\"ds-search\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-4-4\"/></svg><input placeholder=\"Song or artist\"><button class=\"ds-search-go\">Search</button></label>",
+      "css": ".ds-search { display:flex; align-items:center; gap:12px; padding:6px 6px 6px 20px; border-radius:999px; background:var(--card-2, #392f45); border:2px solid transparent; color:var(--text-3, #a99bb2); transition:border-color .2s, background .2s; } .ds-search:focus-within { border-color:var(--action, #ff7a59); background:var(--card, #2d2537); } .ds-search input { flex:1; min-width:0; height:46px; border:0; outline:0; background:transparent; color:var(--text, #fff6ee); caret-color:var(--action, #ff7a59); font:700 18px Nunito, ui-rounded, system-ui, sans-serif; } .ds-search input::placeholder { color:var(--text-3, #a99bb2); } .ds-search-go { height:46px; padding:0 22px; border:0; border-radius:999px; background:var(--action, #ff7a59); color:var(--action-ink, #2a110b); font:800 16px Nunito, ui-rounded, system-ui, sans-serif; cursor:pointer; box-shadow:0 8px 26px -8px rgba(255,122,89,.7); } .ds-search-go:active { transform:scale(.94); }"
+    },
+    {
+      "name": "Tabs",
+      "kind": "nav",
+      "refersTo": "tab-on",
+      "description": "Up next / Radio / History in the list card.",
+      "html": "<div class=\"ds-tabs\"><button class=\"ds-tab on\">Up next <span class=\"ds-count\">8</span></button><button class=\"ds-tab\">Radio <span class=\"ds-dot\"></span></button><button class=\"ds-tab\">History <span class=\"ds-count\">4</span></button></div>",
+      "css": ".ds-tabs { display:inline-flex; gap:4px; padding:4px; border-radius:999px; background:var(--card-2, #392f45); } .ds-tab { display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 16px; border:0; border-radius:999px; background:none; color:var(--text-2, #d0c3d6); font:800 16px Nunito, ui-rounded, system-ui, sans-serif; cursor:pointer; transition:background .2s, color .2s, box-shadow .2s; } .ds-tab:hover { color:var(--text, #fff6ee); } .ds-tab.on { background:var(--card, #2d2537); color:var(--text, #fff6ee); box-shadow:0 3px 10px -4px rgba(0,0,0,.4); } .ds-tab:focus-visible { outline:3px solid var(--action-text, #ff9c80); outline-offset:3px; } .ds-count { display:inline-grid; place-items:center; min-width:24px; height:22px; padding:0 7px; border-radius:999px; background:var(--card-3, #483c56); color:var(--text, #fff6ee); font:900 12.5px Nunito, sans-serif; } .ds-dot { width:9px; height:9px; border-radius:50%; background:var(--action, #ff7a59); box-shadow:0 0 0 3px rgba(255,122,89,.25); }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Stage actions; on-state mixes 20% action.",
+      "html": "<div style=\"display:flex;gap:8px\"><button class=\"ds-chip\">More like this</button><button class=\"ds-chip on\">Radio follows this</button></div>",
+      "css": ".ds-chip { display:inline-flex; align-items:center; gap:8px; height:38px; padding:0 15px; border:0; border-radius:999px; background:var(--card-2, #392f45); color:var(--text, #fff6ee); font:800 14.5px Nunito, ui-rounded, system-ui, sans-serif; cursor:pointer; transition:transform .25s cubic-bezier(.3,1.3,.6,1), background .2s; } .ds-chip:hover { background:var(--card-3, #483c56); } .ds-chip.on { background:color-mix(in srgb, var(--action, #ff7a59) 20%, var(--card-2, #392f45)); } .ds-chip:active { transform:scale(.94); } .ds-chip:focus-visible { outline:3px solid var(--action-text, #ff9c80); outline-offset:3px; }"
+    },
+    {
+      "name": "Origin Tags",
+      "kind": "chip",
+      "refersTo": "tag-origin",
+      "description": "Shape-first origin: solid dot Requested, dashed ring Radio.",
+      "html": "<div style=\"display:flex;gap:8px\"><span class=\"ds-tag\"><i class=\"ds-mark\"></i>Requested</span><span class=\"ds-tag\"><i class=\"ds-mark radio\"></i>Radio pick</span></div>",
+      "css": ".ds-tag { display:inline-flex; align-items:center; gap:7px; height:26px; padding:0 11px 0 9px; border-radius:999px; background:var(--card-2, #392f45); color:var(--text, #fff6ee); font:800 13px Nunito, ui-rounded, system-ui, sans-serif; } .ds-mark { width:10px; height:10px; border-radius:50%; background:var(--user, #ffc574); } .ds-mark.radio { background:transparent; border:2px dashed var(--radio, #8fd0ff); }"
+    },
+    {
+      "name": "Radio Switch",
+      "kind": "button",
+      "refersTo": "button-action",
+      "description": "Header switch; on-state fills the track with the action colour.",
+      "html": "<button class=\"ds-switch\" role=\"switch\" aria-checked=\"true\">Radio <span class=\"ds-track\"><span class=\"ds-knob\"></span></span></button>",
+      "css": ".ds-switch { display:inline-flex; align-items:center; gap:10px; height:46px; padding:0 9px 0 18px; border:1px solid rgba(255,238,226,.05); border-radius:999px; background:var(--card, #2d2537); color:var(--text, #fff6ee); font:800 16px Nunito, ui-rounded, system-ui, sans-serif; cursor:pointer; box-shadow:0 22px 44px -24px rgba(8,4,14,.75); transition:transform .25s cubic-bezier(.3,1.3,.6,1); } .ds-switch:active { transform:scale(.94); } .ds-track { position:relative; width:46px; height:28px; border-radius:999px; background:var(--card-3, #483c56); transition:background .25s; } .ds-knob { position:absolute; top:4px; left:4px; width:20px; height:20px; border-radius:999px; background:var(--text-2, #d0c3d6); transition:transform .35s cubic-bezier(.3,1.3,.6,1); } .ds-switch[aria-checked=\"true\"] .ds-track { background:var(--action, #ff7a59); box-shadow:0 8px 26px -8px rgba(255,122,89,.7); } .ds-switch[aria-checked=\"true\"] .ds-knob { transform:translateX(18px); background:#fff; } .ds-switch:focus-visible { outline:3px solid var(--action-text, #ff9c80); outline-offset:3px; }"
+    },
+    {
+      "name": "Queue Row",
+      "kind": "card",
+      "refersTo": "list-row",
+      "description": "A song in Up next with origin mark and hover actions.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-num\">1</span><span class=\"ds-main\"><b>Go Your Own Way</b><small><i class=\"ds-mk\"></i>Radio · Fleetwood Mac</small></span><span class=\"ds-dur\">3:38</span></div>",
+      "css": ".ds-row { display:flex; align-items:center; gap:12px; min-height:62px; padding:8px 10px; border-radius:16px; color:var(--text, #fff6ee); font-family:Nunito, ui-rounded, system-ui, sans-serif; transition:background .15s; } .ds-row:hover { background:var(--card-2, #392f45); } .ds-num { width:22px; text-align:right; color:var(--text-3, #a99bb2); font-weight:900; font-size:14px; } .ds-main { flex:1; display:flex; flex-direction:column; gap:1px; } .ds-main b { font-weight:800; font-size:16.5px; } .ds-main small { display:flex; align-items:center; gap:6px; color:var(--text-2, #d0c3d6); font:700 14px Nunito, sans-serif; } .ds-mk { width:10px; height:10px; border-radius:50%; border:2px dashed var(--radio, #8fd0ff); } .ds-dur { color:var(--text-3, #a99bb2); font-weight:800; font-size:14px; font-variant-numeric:tabular-nums; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Host's Jukebox",
+    "overview": "NETJammer is a friendly, soft-card jukebox for a room of friends sharing one set of speakers. The host's cartoon self (swept-up hair, round glasses, handlebar mustache) is framed as the star of the main card, and everything around him is calm, warm and pressable. The system is built from one stylesheet and four themes (Listening Room, Daylight, Neon Club, Arcade) selected by `data-theme` on the root; every theme defines the same token names and every component reads only tokens, so a theme is a different art style and material, never a different layout.\n\nDensity is relaxed: big rounded cards on a warm tinted ground, generous 20px gutters, large tap targets (46px controls, an 86px play button), plain-language labels in sentence case. The one saturated colour in each theme belongs to things you can press, and the current song's album art gently re-hues the ground glow and scene lighting within the theme's range. Motion is springy and brief on press, slow and ambient on the stage: notes drift off the scene while music plays and stop the moment it pauses.\n\nThe world deliberately refuses the streaming-app shell (left navigation rail, persistent bottom player bar): the stage card is the player, and the list card switches between Up next, Radio and History in place.",
+    "keyCharacteristics": [
+      "Warm tinted ground per theme with a soft radial glow driven by `--tint-hue`.",
+      "Cards one step lighter than the ground; inset controls one or two steps lighter again (card-2, card-3).",
+      "One saturated action colour per theme, reserved for pressable things and their on-states.",
+      "One rounded humanist family (Nunito) at heavy weights; Arcade swaps in Pixelify Sans, Neon Club's wordmark uses Monoton.",
+      "Pill controls and 30px cards; Arcade sets every radius to zero.",
+      "Spring press feedback (scale .94) on every button-like control.",
+      "Replaceable per-theme art under `static/art/<theme>/`, with code-drawn fallbacks."
+    ],
+    "rules": [
+      {
+        "name": "The One Bright Thing Rule",
+        "body": "The action colour appears only on things you can press and on their on-states (switch on, chip on at 20% mix, active theme ring, radio state dot). Never use it for decoration, headings, or status that cannot be acted on.",
+        "section": "colors"
+      },
+      {
+        "name": "The Shape-First Origin Rule",
+        "body": "Requested is a solid dot, Radio is a dashed ring, the current Radio seed is a solid ring with a soft halo. Colour reinforces the shape; it never carries the meaning alone.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tint Within Range Rule",
+        "body": "The album-art hue (`--tint-hue`, animated over 1.6s) reaches only alpha-limited glows: the two ground radials, the scene light, and the row-arrival flash. Text, cards and the action colour never take the tint, so contrast never depends on the cover art.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Family Rule",
+        "body": "Each theme speaks in exactly one UI family. Never pair a second display face with Nunito; Arcade changes the whole family, Neon Club changes only the wordmark.",
+        "section": "typography"
+      },
+      {
+        "name": "The Plain Label Rule",
+        "body": "Labels are sentence-case plain language (\"Add a song\", \"Up next\", \"Kept off Radio\"). No kickers or eyebrows above titles: a song's origin sits as a tag beside the artist, never above the title. Small uppercase text is limited to group labels inside a list block (800, 13px, .06em tracking).",
+        "section": "typography"
+      },
+      {
+        "name": "The One Step Lighter Rule",
+        "body": "Never stack a surface darker than what it sits on. Ground, card, card-2, card-3 is the only order.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Material Shadow Rule",
+        "body": "Shadows follow the theme's material: soft in Listening Room and Daylight, glow in Neon Club, hard offset only in Arcade, where a solid pixel drop is the native sprite depth. Hard offset shadows never appear in the other three themes.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Same Tokens, Different Corners Rule",
+        "body": "Components read `--r-card`, `--r-inner`, `--r-row` and `--r-ctl`; never hard-code a radius, or Arcade breaks.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** read every colour, radius and shadow from the theme tokens so all four themes keep working; add a new token to all four theme blocks at once.",
+      "**Do** reserve the action colour for pressable things and their on-states (The One Bright Thing Rule).",
+      "**Do** mark origin by shape first: solid dot for Requested, dashed ring for Radio, ring with halo for the seed.",
+      "**Do** keep album-art tint inside alpha-limited glows; never let it reach text or the action colour.",
+      "**Do** give every button-like control the spring press (scale .94, .25s spring) and a 3px action-text focus outline.",
+      "**Do** stop the notes and the guy's bob when paused, and remove notes and shorten all motion under `prefers-reduced-motion`.",
+      "**Do** use the guy's face for empty, loading and toast states, and keep his hair, round glasses and mustache in any new art.",
+      "**Do** self-host every font and asset under `static/`."
+    ],
+    "donts": [
+      "**Don't** add a left navigation rail or a persistent bottom player bar; the Stage card is the player.",
+      "**Don't** put kickers or eyebrows above titles; origin and status sit beside or below.",
+      "**Don't** use hard offset shadows outside Arcade.",
+      "**Don't** hard-code a radius; Arcade depends on the radius tokens going to zero.",
+      "**Don't** add a second display face beside Nunito, or mix Pixelify Sans into non-Arcade themes.",
+      "**Don't** stack a surface darker than the one beneath it."
+    ]
+  }
+}
